@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://morphd.local/schemas/task_contract.schema.json",
-  "title": "morphd task contract v1",
+  "title": "harness2-morphd task contract v1",
   "type": "object",
   "additionalProperties": false,
   "required": [

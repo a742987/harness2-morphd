@@ -1,6 +1,6 @@
-# @morphd/web
+# @harness2-morphd/web
 
-Offline, local-only React + Vite UI for morphd. It is served by the local Python engine;
+Offline, local-only React + Vite UI for harness2-morphd. It is served by the local Python engine;
 there is no CDN and no runtime network access beyond loopback.
 
 ```sh

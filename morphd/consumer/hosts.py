@@ -492,7 +492,7 @@ class HostManager:
             raise ConsumerError(
                 "HOST_RUNNING",
                 "宿主正在运行，修改配置可能不会生效。",
-                "关闭宿主后重试，或重启宿主以启用 morphd。",
+                "关闭宿主后重试，或重启宿主以启用 harness2-morphd。",
             )
         existing = self.record_for(kind)
         if existing and existing.get("executable") == str(executable):
@@ -526,7 +526,7 @@ class HostManager:
                     f"host: {kind}\n"
                     f"real executable: {executable}\n"
                     f"wrapper: {wrapper}\n\n"
-                    "启动宿主时使用上面的 wrapper，morphd 的本地 UI 与任务运行器会随宿主启停。\n"
+                    "启动宿主时使用上面的 wrapper，harness2-morphd 的本地 UI 与任务运行器会随宿主启停。\n"
                     "原生插件/hook 不可用时，会话结束分析会在下次启动时从检查点继续。\n"
                 ),
             )
@@ -681,7 +681,7 @@ class HostManager:
     def harness_root(self, kind: str, *, project_root: str | None = None) -> Path:
         record = self.record_for(kind)
         if record is None:
-            raise ConsumerError("HOST_NOT_FOUND", "还没有为这个 Harness 安装 morphd。", "先在宿主页完成适配。")
+            raise ConsumerError("HOST_NOT_FOUND", "还没有为这个 Harness 安装 harness2-morphd。", "先在宿主页完成适配。")
         root = Path(project_root or record.get("project_root") or "").expanduser()
         if not root.is_absolute() or not root.is_dir():
             config_dir = Path(record.get("config_dir") or "")

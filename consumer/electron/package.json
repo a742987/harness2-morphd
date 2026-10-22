@@ -1,7 +1,7 @@
 {
-  "name": "@morphd/desktop",
+  "name": "@harness2-morphd/desktop",
   "version": "0.5.0",
-  "description": "morphd Windows/macOS/Linux desktop shell",
+  "description": "harness2-morphd Windows/macOS/Linux desktop shell",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/main.js",
@@ -20,7 +20,7 @@
   },
   "build": {
     "appId": "com.morphd.desktop",
-    "productName": "morphd",
+    "productName": "harness2-morphd",
     "asar": true,
     "directories": {
       "output": "release",

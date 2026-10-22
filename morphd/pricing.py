@@ -58,7 +58,7 @@ class Pricing:
         path = Path(path)
         if not path.is_file():
             raise PricingError(
-                f"price table not found at {path}; morphd refuses to start without one"
+                f"price table not found at {path}; harness2-morphd refuses to start without one"
             )
         try:
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))

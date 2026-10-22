@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @morphd/cli — thin, auditable launcher.
+ * @harness2-morphd/cli — thin, auditable launcher.
  *
  * It deliberately has no postinstall scripts and never downloads a binary from an
  * arbitrary URL. The engine comes from an optional platform package, an explicit
@@ -29,12 +29,12 @@ function nodeMajor(): number {
 
 function assertNode(): void {
   if (nodeMajor() < MIN_NODE) {
-    fail(`morphd needs Node >= ${MIN_NODE}; this is ${process.versions.node}.`);
+    fail(`harness2-morphd needs Node >= ${MIN_NODE}; this is ${process.versions.node}.`);
   }
 }
 
 function platformPackage(): string {
-  return `@morphd/${process.platform}-${process.arch}`;
+  return `@harness2-morphd/${process.platform}-${process.arch}`;
 }
 
 function engineFromPlatformPackage(): EngineCommand | null {
@@ -89,7 +89,7 @@ function resolveEngine(): EngineCommand {
   const python = pythonEngine();
   if (python) return python;
   fail(
-    `No morphd engine found for ${process.platform}-${process.arch}. ` +
+    `No harness2-morphd engine found for ${process.platform}-${process.arch}. ` +
       `Install the matching platform package (${platformPackage()}) or set MORPHD_ENGINE_BIN.`,
     "ENGINE_MISSING",
   );
@@ -183,13 +183,13 @@ function help(): void {
   process.stdout.write(`morphd ${VERSION}
 
 Usage:
-  npx @morphd/cli@latest setup [--host dsh|claude-code|codex] [--project DIR]
-  npx @morphd/cli@latest doctor
-  npx @morphd/cli@latest status
-  npx @morphd/cli@latest update [--yes]
-  npx @morphd/cli@latest uninstall [--host KIND] [--delete-data]
-  npx @morphd/cli@latest serve [--open]
-  npx @morphd/cli@latest host <run|event> ...
+  npx @harness2-morphd/cli@latest setup [--host dsh|claude-code|codex] [--project DIR]
+  npx @harness2-morphd/cli@latest doctor
+  npx @harness2-morphd/cli@latest status
+  npx @harness2-morphd/cli@latest update [--yes]
+  npx @harness2-morphd/cli@latest uninstall [--host KIND] [--delete-data]
+  npx @harness2-morphd/cli@latest serve [--open]
+  npx @harness2-morphd/cli@latest host <run|event> ...
 
 Environment:
   MORPHD_HOME          data directory (default ~/.morphd)
@@ -245,7 +245,7 @@ function cmdUpdate(args: string[]): number {
   assertNode();
   const yes = args.includes("--yes");
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const view = spawnSync(npm, ["view", "@morphd/cli", "version"], {
+  const view = spawnSync(npm, ["view", "@harness2-morphd/cli", "version"], {
     encoding: "utf8",
     timeout: 30000,
   });
@@ -255,16 +255,16 @@ function cmdUpdate(args: string[]): number {
   const latest = (view.stdout || "").trim();
   if (!latest) fail("npm returned no version.", "UPDATE_FAILED");
   if (latest === VERSION) {
-    process.stdout.write(`morphd is up to date (${VERSION}).\n`);
+    process.stdout.write(`harness2-morphd is up to date (${VERSION}).\n`);
     return 0;
   }
   process.stdout.write(`morphd ${VERSION} → ${latest} is available.\n`);
   process.stdout.write("This launcher never updates silently. Review the release notes first.\n");
   if (!yes) {
-    process.stdout.write("Run with --yes to install the global update, or use `npx @morphd/cli@latest`.\n");
+    process.stdout.write("Run with --yes to install the global update, or use `npx @harness2-morphd/cli@latest`.\n");
     return 0;
   }
-  const install = spawnSync(npm, ["install", "-g", `@morphd/cli@${latest}`], {
+  const install = spawnSync(npm, ["install", "-g", `@harness2-morphd/cli@${latest}`], {
     stdio: "inherit",
     timeout: 300000,
   });

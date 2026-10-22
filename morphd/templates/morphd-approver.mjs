@@ -1,4 +1,4 @@
-// @morphd/approver — a controlled dsh approval answerer.
+// @harness2-morphd/approver — a controlled dsh approval answerer.
 // Loaded only in offline morphd profiles. It never enters a candidate harness tree.
 import { appendFileSync, readFileSync } from 'node:fs'
 

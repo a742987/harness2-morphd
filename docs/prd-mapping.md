@@ -20,7 +20,7 @@ evidence. Status legend:
 | R5 | Humanisation, quiet defaults, caps, feedback | done | Attention manager, trust/appetite policy, pause/vacation/incognito, weekly cap, quiet hours, feedback down-ranking, inbox; tests. |
 | R6 | NPM + Electron dual package | partial | `packages/cli`, `packages/tray`, `consumer/electron`, platform manifests/build script. Signed artifacts/npm publish/SmartScreen are release-environment work. |
 | R7 | Host discovery, adaptation, manual folder | done (fake) / partial (real) | `consumer/hosts.py` PATH/npm/common dirs, identity/version checks, backup/rollback/manual validation; tests with fake dsh. |
-| R8 | Runtime tray | partial | Electron tray controller, optional `@morphd/tray` + `morphd tray` helper, single instance, lifecycle watcher. GUI E2E on Windows/macOS/Linux pending. |
+| R8 | Runtime tray | partial | Electron tray controller, optional `@harness2-morphd/tray` + `morphd tray` helper, single instance, lifecycle watcher. GUI E2E on Windows/macOS/Linux pending. |
 | R9 | NVIDIA Green / Mono visual system | done | design tokens, build-time lint, light/dark, mobile, 125%/150% DPI, XL/high-contrast screenshots and axe checks. |
 
 ## FR-C1–C18

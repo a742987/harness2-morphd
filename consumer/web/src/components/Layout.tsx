@@ -76,12 +76,12 @@ export function Layout({ children }: { children: ReactNode }) {
         {l("跳到主要内容", "Skip to main content")}
       </a>
       <aside className="sidebar" aria-label={l("主导航", "Main navigation")}>
-        <div className="brand" aria-label="morphd">
+        <div className="brand" aria-label="harness2-morphd">
           <span className="brand-mark" aria-hidden="true">
             m
           </span>
           <span className="brand-text">
-            <strong>morphd</strong>
+            <strong>harness2-morphd</strong>
             <span>{l("安静地变好", "quietly better")}</span>
           </span>
         </div>
@@ -138,7 +138,7 @@ export function Layout({ children }: { children: ReactNode }) {
               m
             </span>
             <span className="brand-text">
-              <strong>morphd</strong>
+              <strong>harness2-morphd</strong>
               <span>{stateLabel}</span>
             </span>
           </div>

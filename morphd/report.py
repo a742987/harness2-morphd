@@ -195,7 +195,7 @@ def _counts(values) -> dict:
 
 def render_markdown(report: dict) -> str:
     lines = [
-        "# morphd report",
+        "# harness2-morphd report",
         "",
         f"Generated: {report.get('generated_at')}",
         "",

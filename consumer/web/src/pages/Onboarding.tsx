@@ -181,7 +181,7 @@ export function Onboarding() {
           <div className="brand">
             <span className="brand-mark" aria-hidden="true">m</span>
             <span className="brand-text">
-              <strong>morphd</strong>
+              <strong>harness2-morphd</strong>
               <span>{l("安静地变好", "quietly better")}</span>
             </span>
           </div>
@@ -238,7 +238,7 @@ export function Onboarding() {
               <h1 id="onboard-host">{l("找到你的 Agent 宿主", "Find your agent host")}</h1>
               <p className="sub mt-8">
                 {l(
-                  "morphd 只检查 PATH、npm 全局目录和常见安装/配置目录，不扫描整个磁盘，也不读取凭据。",
+                  "harness2-morphd 只检查 PATH、npm 全局目录和常见安装/配置目录，不扫描整个磁盘，也不读取凭据。",
                   "morphd checks PATH, npm global locations and common install/config directories. It never scans the whole disk or reads credentials.",
                 )}
               </p>
@@ -467,7 +467,7 @@ export function Onboarding() {
               <p className="sub mt-8">
                 {l(
                   "这是自动学习的三层硬上限。超限会直接停止，不会先花钱后通知。",
-                  "These are hard limits for automatic learning. When reached, morphd stops before spending.",
+                  "These are hard limits for automatic learning. When reached, harness2-morphd stops before spending.",
                 )}
               </p>
             </div>

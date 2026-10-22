@@ -1,6 +1,6 @@
-# @morphd/tray
+# @harness2-morphd/tray
 
-Optional runtime tray helper for the NPM/browser path. It attaches to a running morphd
+Optional runtime tray helper for the NPM/browser path. It attaches to a running harness2-morphd
 host server, opens the UI, exposes pause/incognito/status actions, and exits when the host
 server disappears. It does not start a host, a daemon, a scheduled task, or a browser.
 

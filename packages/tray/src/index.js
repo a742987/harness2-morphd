@@ -13,7 +13,7 @@ import process from "node:process";
 const require = createRequire(import.meta.url);
 
 function platformPackage() {
-  return `@morphd/${process.platform}-${process.arch}`;
+  return `@harness2-morphd/${process.platform}-${process.arch}`;
 }
 
 function engine() {

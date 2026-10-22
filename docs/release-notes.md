@@ -22,6 +22,11 @@
 - Cron/nightly scheduling and the residential trigger plugin were removed from the product
   path; scheduling is tied to host lifecycle (enterprise may use external schedulers).
 - Engine version is now `0.5.0`; local API is v1.
+- Product and published package names are now `harness2-morphd` (npm scope
+  `@harness2-morphd/*`, PyPI distribution `harness2-morphd`, Electron `productName`).
+  Technical identifiers keep the short form: the `morphd` Python package and console
+  command, `MORPHD_*` environment variables, the `~/.morphd` data directory, `morphd:*`
+  IPC channels and the `morphd-engine` binary.
 
 ## Known limitations
 

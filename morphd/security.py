@@ -229,7 +229,7 @@ def require_isolation(*, enabled: bool) -> dict:
     ]
     if not marker:
         raise SecurityError(
-            "morphd refuses to start real rollouts outside the isolated container. "
+            "harness2-morphd refuses to start real rollouts outside the isolated container. "
             "Run through deploy/container (which sets MORPHD_CONTAINER_ISOLATED=1), or set "
             "MORPHD_CONTAINER_REQUIRED=0 only in a disposable test environment."
         )

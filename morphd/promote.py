@@ -242,7 +242,7 @@ def _entry_targets(settings: Settings, runtime: str, target: Path | None, profil
         if home is None:
             raise PromotionError(
                 "dsh promotion needs an explicit target home: pass --target or set "
-                "MORPHD_DSH_TARGET_HOME. morphd never writes the default ~/.dsh."
+                "MORPHD_DSH_TARGET_HOME. harness2-morphd never writes the default ~/.dsh."
             )
         if home == Path.home() / ".dsh":
             raise PromotionError("refusing to promote into the default ~/.dsh (third-party collision risk)")

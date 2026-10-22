@@ -42,7 +42,7 @@ export class TrayController {
       const image = nativeImage.createFromPath(this.iconPath);
       if (process.platform === "darwin" && !image.isEmpty()) image.setTemplateImage(true);
       this.tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
-      this.tray.setToolTip("morphd");
+      this.tray.setToolTip("harness2-morphd");
       this.tray.on("click", () => this.hooks.showWindow());
       this.refresh();
       this.timer = setInterval(() => void this.refresh(), 5000);
@@ -80,11 +80,11 @@ export class TrayController {
         : host?.connected
           ? `学习中 · ${host.label || ""}`
           : "未连接宿主";
-    this.tray.setToolTip(`morphd · ${statusText} · 本月 $${spent} / $${limit}`);
+    this.tray.setToolTip(`harness2-morphd · ${statusText} · 本月 $${spent} / $${limit}`);
 
     const template: MenuItemConstructorOptions[] = [
-      { label: `morphd · ${statusText}`, enabled: false },
-      { label: "打开 morphd", click: () => this.hooks.showWindow() },
+      { label: `harness2-morphd · ${statusText}`, enabled: false },
+      { label: "打开 harness2-morphd", click: () => this.hooks.showWindow() },
       { label: "设置", click: () => this.hooks.settings() },
       { type: "separator" },
       { label: `本月花费 $${spent}`, enabled: false },

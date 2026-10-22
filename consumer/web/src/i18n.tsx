@@ -101,8 +101,8 @@ export function humanError(
   const known: Record<string, Partial<HumanError>> = {
     DISCONNECTED: {
       what: zh ? "本地服务已断开。" : "The local service is disconnected.",
-      why: zh ? "宿主或 morphd 已退出；页面不能再工作。" : "The host or morphd exited; this page cannot work.",
-      action: zh ? "重新打开宿主，或从宿主菜单再次打开 morphd。" : "Reopen the host, then open morphd again.",
+      why: zh ? "宿主或 harness2-morphd 已退出；页面不能再工作。" : "The host or harness2-morphd exited; this page cannot work.",
+      action: zh ? "重新打开宿主，或从宿主菜单再次打开 harness2-morphd。" : "Reopen the host, then open morphd again.",
       money: zh ? "这不会产生费用。" : "This costs nothing.",
     },
     AUTH_REQUIRED: {
@@ -119,7 +119,7 @@ export function humanError(
     },
     PROVIDER_AUTH_FAILED: {
       what: zh ? "模型 Key 无效、过期或没有权限。" : "The model key is invalid, expired, or unauthorized.",
-      why: zh ? "服务商拒绝了鉴权；morphd 不会重试无效 Key。" : "The provider rejected authentication; morphd does not retry invalid keys.",
+      why: zh ? "服务商拒绝了鉴权；harness2-morphd 不会重试无效 Key。" : "The provider rejected authentication; harness2-morphd does not retry invalid keys.",
       action: action || (zh ? "到模型页更新 Key，再测试连接。" : "Update the key on the Models page and test again."),
       money: zh ? "失败前不会启动分析，也不会产生分析费用。" : "No analysis starts before the fix, so no analysis cost.",
     },
@@ -127,12 +127,12 @@ export function humanError(
       what: zh ? "模型服务限流了。" : "The model service is rate limiting.",
       why: zh ? "短时间调用过多，或服务商临时限制。" : "Too many calls, or a temporary provider limit.",
       action: zh ? "稍后重试，或换一个 fallback 模型。" : "Retry later, or use a fallback model.",
-      money: zh ? "失败调用可能按服务商账单计费；morphd 会记录实际用量。" : "Failed calls may be billed by the provider; morphd records actual usage.",
+      money: zh ? "失败调用可能按服务商账单计费；harness2-morphd 会记录实际用量。" : "Failed calls may be billed by the provider; harness2-morphd records actual usage.",
     },
     PROVIDER_UNAVAILABLE: {
       what: zh ? "无法连接模型服务。" : "The model service cannot be reached.",
       why: zh ? "网络、Base URL 或服务商故障。" : "Network, Base URL, or provider outage.",
-      action: zh ? "检查网络与 Base URL；不会在后台反复重试。" : "Check the network and Base URL; morphd will not retry in the background.",
+      action: zh ? "检查网络与 Base URL；不会在后台反复重试。" : "Check the network and Base URL; harness2-morphd will not retry in the background.",
       money: zh ? "未发出请求时不会产生费用。" : "No cost if the request never reached the provider.",
     },
     PROVIDER_NOT_CONFIGURED: {
@@ -144,12 +144,12 @@ export function humanError(
     BUDGET_EXCEEDED: {
       what: zh ? "预算上限阻止了这次操作。" : "A budget limit stopped this operation.",
       why: zh ? "按最坏情况估算会超过月度、单会话或单次分析预算。" : "The worst-case estimate exceeds the monthly, session, or job budget.",
-      action: zh ? "调高预算或选择更便宜的模型。morphd 不会先花后通知。" : "Raise the budget or choose a cheaper model. morphd never spends first.",
+      action: zh ? "调高预算或选择更便宜的模型。harness2-morphd 不会先花后通知。" : "Raise the budget or choose a cheaper model. harness2-morphd never spends first.",
       money: zh ? "被阻止的调用不会产生费用。" : "A blocked call costs nothing.",
     },
     BUDGET_UNKNOWN_PRICE: {
       what: zh ? "这个模型没有已确认的价格。" : "This model has no confirmed price.",
-      why: zh ? "morphd 不会把未知价格按 0 计费。" : "morphd never silently treats an unknown price as zero.",
+      why: zh ? "harness2-morphd 不会把未知价格按 0 计费。" : "harness2-morphd never silently treats an unknown price as zero.",
       action: zh ? "在模型页填写估算价格或明确确认。" : "Enter an estimate or confirm the price on the Models page.",
       money: zh ? "确认前不会启动分析，也不会产生费用。" : "No analysis starts before confirmation.",
     },
@@ -179,7 +179,7 @@ export function humanError(
     },
     APPLY_CONFLICT: {
       what: zh ? "目标文件已被手动修改。" : "The target file was edited manually.",
-      why: zh ? "morphd 不会覆盖你的手工修改。" : "morphd never overwrites your manual edits.",
+      why: zh ? "harness2-morphd 不会覆盖你的手工修改。" : "harness2-morphd never overwrites your manual edits.",
       action: zh ? "先备份或提交该文件，再应用/撤销。" : "Back up or commit the file, then apply or revert.",
       money: zh ? "这不会产生费用。" : "This costs nothing.",
     },
@@ -225,8 +225,8 @@ export function humanError(
 
 export const TERMS: Record<string, { zh: string; en: string }> = {
   harness: {
-    zh: "Agent 的工作方式：提示、技能和脚本。morphd 会尝试改进这些文件。",
-    en: "How the agent works: instructions, skills and scripts. morphd tries to improve these files.",
+    zh: "Agent 的工作方式：提示、技能和脚本。harness2-morphd 会尝试改进这些文件。",
+    en: "How the agent works: instructions, skills and scripts. harness2-morphd tries to improve these files.",
   },
   candidate: {
     zh: "一条改进建议。只有你点击“应用”后才会写入真实文件。",

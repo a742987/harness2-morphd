@@ -115,7 +115,7 @@ function createWindow(info: ServerInfo): void {
         hintShown = true;
         if (Notification.isSupported()) {
           new Notification({
-            title: "morphd 仍在宿主中运行",
+            title: "harness2-morphd 仍在宿主中运行",
             body: "已隐藏到托盘；宿主退出后自动关闭。点击托盘图标可重新打开。",
           }).show();
         }
@@ -295,7 +295,7 @@ async function confirmStopLearning(): Promise<void> {
     defaultId: 0,
     cancelId: 0,
     title: "停止学习并退出",
-    message: "停止 morphd 的学习与界面，但宿主会继续运行。",
+    message: "停止 harness2-morphd 的学习与界面，但宿主会继续运行。",
     detail: "不会关闭宿主，也不会撤销已应用的改动。之后可从宿主菜单重新打开。",
   });
   if (result.response === 1) {
@@ -312,7 +312,7 @@ async function boot(): Promise<void> {
   try {
     ({ info, mode } = await ensureServer());
   } catch (error) {
-    dialog.showErrorBox("morphd 无法启动", (error as Error).message);
+    dialog.showErrorBox("harness2-morphd 无法启动", (error as Error).message);
     app.quit();
     return;
   }

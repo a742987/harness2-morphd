@@ -241,7 +241,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                     return
                 write = method != "GET"
                 if not self._authenticated(write=write):
-                    raise ConsumerError("AUTH_REQUIRED", "需要访问令牌。", "从 morphd 启动时打印的本地地址打开页面。")
+                    raise ConsumerError("AUTH_REQUIRED", "需要访问令牌。", "从 harness2-morphd 启动时打印的本地地址打开页面。")
                 self._api(method, path, parse_qs(parsed.query))
                 return
             if method != "GET":
@@ -460,7 +460,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         if parts and parts[0] == "host":
             if not self._internal_token():
-                raise ConsumerError("FORBIDDEN", "宿主桥需要内部令牌。", "通过 morphd 启动宿主。")
+                raise ConsumerError("FORBIDDEN", "宿主桥需要内部令牌。", "通过 harness2-morphd 启动宿主。")
             if parts[1:] == ["session-start"] and method == "POST":
                 self._json(service.session_start(self._body()))
                 return
@@ -471,7 +471,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._json(service.status())
                 return
 
-        raise ConsumerError("NOT_FOUND", "接口不存在。", "刷新页面或更新 morphd。")
+        raise ConsumerError("NOT_FOUND", "接口不存在。", "刷新页面或更新 harness2-morphd。")
 
     # --- static ---------------------------------------------------------------
     def _static(self, path: str):
@@ -480,7 +480,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not index.is_file():
             html = (
                 "<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
-                "<title>morphd</title></head><body>"
+                "<title>harness2-morphd</title></head><body>"
                 "<h1>morphd</h1><p>Web UI 尚未构建。运行 "
                 "npm --prefix consumer/web run build 后重启本地服务。</p>"
                 "<p>API is available; this fallback page loads no external resources.</p>"

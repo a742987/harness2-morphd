@@ -244,7 +244,7 @@ class ProviderClient:
                 raise ConsumerError(
                     "PROVIDER_UNAVAILABLE",
                     "无法连接模型服务。",
-                    "检查网络和 Base URL；morphd 不会在后台反复重试。",
+                    "检查网络和 Base URL；harness2-morphd 不会在后台反复重试。",
                 ) from exc
         raise ConsumerError(
             "PROVIDER_UNAVAILABLE", "模型服务暂时不可用。", "稍后重试或切换 fallback。"

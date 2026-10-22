@@ -190,7 +190,7 @@ class ConsumerBudget:
         if estimate_usd is None:
             raise ConsumerError(
                 code="BUDGET_UNKNOWN_PRICE",
-                message="这个模型没有已确认的价格，morphd 不会按 0 计费。",
+                message="这个模型没有已确认的价格，harness2-morphd 不会按 0 计费。",
                 action="在模型页填写估算价格，或明确确认按未知成本运行。",
             )
         if not math.isfinite(float(estimate_usd)) or estimate_usd < 0:

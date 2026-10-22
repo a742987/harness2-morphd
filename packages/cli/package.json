@@ -1,7 +1,7 @@
 {
-  "name": "@morphd/cli",
+  "name": "@harness2-morphd/cli",
   "version": "0.5.0",
-  "description": "morphd setup, doctor, update and uninstall launcher",
+  "description": "harness2-morphd setup, doctor, update and uninstall launcher",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -27,11 +27,11 @@
     "typescript": "^5.6.3"
   },
   "optionalDependencies": {
-    "@morphd/linux-x64": "0.5.0",
-    "@morphd/linux-arm64": "0.5.0",
-    "@morphd/darwin-x64": "0.5.0",
-    "@morphd/darwin-arm64": "0.5.0",
-    "@morphd/win32-x64": "0.5.0"
+    "@harness2-morphd/linux-x64": "0.5.0",
+    "@harness2-morphd/linux-arm64": "0.5.0",
+    "@harness2-morphd/darwin-x64": "0.5.0",
+    "@harness2-morphd/darwin-arm64": "0.5.0",
+    "@harness2-morphd/win32-x64": "0.5.0"
   },
   "publishConfig": {
     "access": "public",

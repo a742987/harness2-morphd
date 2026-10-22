@@ -121,7 +121,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       error: {
         code: "DISCONNECTED",
         message: "本地服务已断开。",
-        action: "重新打开 morphd 或重启宿主。",
+        action: "重新打开 harness2-morphd 或重启宿主。",
         details: {},
       },
     });

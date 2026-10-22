@@ -158,7 +158,7 @@ export function Learning() {
 
       <Section
         title={l("自动学习", "Automatic learning")}
-        subtitle={l("会话结束即判断；没有信号时零成本跳过，不为了用满预算而分析。", "Every session is triaged; no signal means a zero-cost skip. morphd never analyzes just to use budget.")}
+        subtitle={l("会话结束即判断；没有信号时零成本跳过，不为了用满预算而分析。", "Every session is triaged; no signal means a zero-cost skip. harness2-morphd never analyzes just to use budget.")}
       >
         <div className="stack">
           <Toggle
@@ -203,7 +203,7 @@ export function Learning() {
 
       <Section
         title={l("信任等级与变更幅度", "Trust and change appetite")}
-        subtitle={l("这决定 morphd 能自动做什么，以及一次最多改多少。", "This decides what morphd may do automatically and how much it may change at once.")}
+        subtitle={l("这决定 harness2-morphd 能自动做什么，以及一次最多改多少。", "This decides what harness2-morphd may do automatically and how much it may change at once.")}
       >
         <div className="stack">
           <RadioCards

@@ -335,8 +335,8 @@ export function Models() {
                 <strong>{l("执行模型（只读）", "Executor (read-only)")}</strong>
                 <p className="sub">
                   {l(
-                    "宿主当前使用的模型。morphd 不替换它；高级覆盖会重置学习基线。",
-                    "The model your host uses. morphd does not replace it; overriding resets the learning baseline.",
+                    "宿主当前使用的模型。harness2-morphd 不替换它；高级覆盖会重置学习基线。",
+                    "The model your host uses. harness2-morphd does not replace it; overriding resets the learning baseline.",
                   )}
                 </p>
               </div>

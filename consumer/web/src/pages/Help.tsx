@@ -12,7 +12,7 @@ const KEY_HELP = [
 ];
 
 const GLOSSARY = [
-  { name: "harness", zh: "Agent 的工作方式：提示、技能和脚本。morphd 会尝试改进这些文件。", en: "How the agent works: instructions, skills, and scripts. morphd tries to improve these files." },
+  { name: "harness", zh: "Agent 的工作方式：提示、技能和脚本。harness2-morphd 会尝试改进这些文件。", en: "How the agent works: instructions, skills, and scripts. harness2-morphd tries to improve these files." },
   { name: "candidate", zh: "一条改进建议。只有你点击“应用”后才会写入真实文件。", en: "An improvement suggestion. Nothing is written until you choose Apply." },
   { name: "recursive", zh: "让 Agent 自己尝试几种改法，再挑出更顺的一种。", en: "Let the agent try a few improvements and select the one that works best." },
   { name: "incognito", zh: "本次会话不记录、不分析、不产生费用。", en: "This session is not recorded, analyzed, or billed." },
@@ -48,7 +48,7 @@ export function Help() {
         </div>
       </Section>
 
-      <Section title={l("如何获取 API Key", "How to get an API key")} subtitle={l("morphd 不代理、不转售模型调用；你直接与服务商结算。", "morphd does not proxy or resell model calls; you settle directly with the provider.")}>
+      <Section title={l("如何获取 API Key", "How to get an API key")} subtitle={l("harness2-morphd 不代理、不转售模型调用；你直接与服务商结算。", "harness2-morphd does not proxy or resell model calls; you settle directly with the provider.")}>
         <div className="grid-3">
           {KEY_HELP.map((item) => (
             <div className="fact" key={item.label}>
@@ -65,7 +65,7 @@ export function Help() {
         </InfoNote>
       </Section>
 
-      <Section title={l("宿主与生命周期", "Hosts and lifecycle")} subtitle={l("morphd 不常驻后台，也没有开机自启。", "morphd does not stay resident and has no startup entry.")}>
+      <Section title={l("宿主与生命周期", "Hosts and lifecycle")} subtitle={l("harness2-morphd 不常驻后台，也没有开机自启。", "harness2-morphd does not stay resident and has no startup entry.")}>
         <div className="stack">
           <InfoNote icon="host">
             {l(
@@ -90,7 +90,7 @@ export function Help() {
       <Section title={l("撤销与恢复", "Undo and restore")} subtitle={l("任何应用都有快照；默认撤销窗口 7 天。", "Every apply has a snapshot; the default undo window is 7 days.")}>
         <ol className="step-list">
           <li><span className="badge badge-outline">1</span><span>{l("在“历史”中找到已应用的建议，点击撤销，1 分钟内恢复应用前文件。", "In History, open an applied suggestion and revert; the pre-apply files return within a minute.")}</span></li>
-          <li><span className="badge badge-outline">2</span><span>{l("如果文件被你手动改过，morphd 会停止撤销并提示冲突，而不是覆盖。", "If you edited a file manually, morphd stops instead of overwriting it.")}</span></li>
+          <li><span className="badge badge-outline">2</span><span>{l("如果文件被你手动改过，harness2-morphd 会停止撤销并提示冲突，而不是覆盖。", "If you edited a file manually, harness2-morphd stops instead of overwriting it.")}</span></li>
           <li><span className="badge badge-outline">3</span><span>{l("要回到最初状态，在“宿主”页使用“恢复原始 harness”。", "To return to the earliest state, use Restore original harness on Hosts.")}</span></li>
         </ol>
       </Section>
@@ -107,11 +107,11 @@ export function Help() {
             <tbody>
               <tr>
                 <td>{l("页面显示已断开", "Page says disconnected")}</td>
-                <td>{l("重新打开宿主，再从宿主菜单/启动地址打开 morphd；这是生命周期绑定，不是网络问题。", "Reopen the host and launch morphd again. This is lifecycle binding, not a network issue.")}</td>
+                <td>{l("重新打开宿主，再从宿主菜单/启动地址打开 harness2-morphd；这是生命周期绑定，不是网络问题。", "Reopen the host and launch morphd again. This is lifecycle binding, not a network issue.")}</td>
               </tr>
               <tr>
                 <td>{l("没有找到 Harness", "No Harness found")}</td>
-                <td>{l("在宿主页手动选择安装目录；morphd 不会扫描全盘，也不会自动安装宿主。", "Choose the install folder on Hosts. morphd never scans the whole disk or installs a host.")}</td>
+                <td>{l("在宿主页手动选择安装目录；harness2-morphd 不会扫描全盘，也不会自动安装宿主。", "Choose the install folder on Hosts. harness2-morphd never scans the whole disk or installs a host.")}</td>
               </tr>
               <tr>
                 <td>{l("模型 Key 无效", "Invalid model key")}</td>
@@ -119,7 +119,7 @@ export function Help() {
               </tr>
               <tr>
                 <td>{l("预算用完", "Budget exhausted")}</td>
-                <td>{l("在预算页调高上限，或等下月；morphd 不会先花后通知。", "Raise the limit on Budget or wait. morphd never spends first.")}</td>
+                <td>{l("在预算页调高上限，或等下月；harness2-morphd 不会先花后通知。", "Raise the limit on Budget or wait. harness2-morphd never spends first.")}</td>
               </tr>
               <tr>
                 <td>{l("建议被安全拒绝", "Suggestion rejected")}</td>
@@ -156,14 +156,14 @@ export function Help() {
           <li><span>•</span><span>{l("默认只在本机处理；不上传遥测、不上传会话原文。", "Processing is local by default; no telemetry or full-session upload.")}</span></li>
           <li><span>•</span><span>{l("只有你选择的模型服务商能看到脱敏后的调用内容；可预览、可删除。", "Only your chosen provider sees redacted request content; you can preview and delete.")}</span></li>
           <li><span>•</span><span>{l("Key 保存在 Keychain 或本地加密保险库；不出现在日志/导出。", "Keys live in the keychain or encrypted vault and never appear in logs or exports.")}</span></li>
-          <li><span>•</span><span>{l("morphd 不使用你的数据训练模型，不跨宿主/设备共享经验。", "morphd does not train on your data or share experience across hosts/devices.")}</span></li>
+          <li><span>•</span><span>{l("harness2-morphd 不使用你的数据训练模型，不跨宿主/设备共享经验。", "harness2-morphd does not train on your data or share experience across hosts/devices.")}</span></li>
           <li><span>•</span><span>{l("数据默认保留 30 天，可改为 7/90 天或永久，并可立即删除。", "Data is kept for 30 days by default; choose 7/90/forever and delete at any time.")}</span></li>
         </ul>
       </Section>
 
       <Section title={l("服务条款摘要", "Terms summary")}>
         <ul className="step-list">
-          <li><span>•</span><span>{l("BYOK：模型调用由你的服务商计费，morphd 不转售、不代理，也不为模型效果作担保。", "BYOK: your provider bills model calls; morphd does not resell, proxy, or guarantee model outcomes.")}</span></li>
+          <li><span>•</span><span>{l("BYOK：模型调用由你的服务商计费，harness2-morphd 不转售、不代理，也不为模型效果作担保。", "BYOK: your provider bills model calls; harness2-morphd does not resell, proxy, or guarantee model outcomes.")}</span></li>
           <li><span>•</span><span>{l("自动改动默认关闭；开启后仍受安全扫描、预算、试用与自动回滚约束。", "Auto-apply is off by default; when on, safety scans, budgets, trials, and rollback still apply.")}</span></li>
           <li><span>•</span><span>{l("不得使用本产品绕过组织的数据合规、权限或安全策略。", "Do not use this product to bypass organizational data, permission, or security policies.")}</span></li>
           <li><span>•</span><span>{l("代码以 Apache-2.0 发布；上游 Harness² 保留原版权与 NOTICE。", "Code is Apache-2.0; upstream Harness² keeps its copyright and NOTICE.")}</span></li>
@@ -173,7 +173,7 @@ export function Help() {
       <Section title={l("关于", "About")}>
         <div className="grid-2">
           <div className="stack-sm">
-            <span className="small strong">morphd</span>
+            <span className="small strong">harness2-morphd</span>
             <span className="sub">{l("本地优先的 Agent harness 自动优化。", "Local-first automatic agent harness improvement.")}</span>
             <Badge variant="accent">{app.status?.app_version || "0.5.0"}</Badge>
           </div>

@@ -1,7 +1,7 @@
 {
-  "name": "@morphd/win32-x64",
+  "name": "@harness2-morphd/win32-x64",
   "version": "0.5.0",
-  "description": "morphd engine and UI assets for win32-x64",
+  "description": "harness2-morphd engine and UI assets for win32-x64",
   "license": "Apache-2.0",
   "os": [
     "win32"

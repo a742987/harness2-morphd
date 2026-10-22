@@ -200,7 +200,7 @@ export function Advanced() {
 
       <Section title={l("版本与兼容", "Version and compatibility")} subtitle={l("宿主版本不在矩阵内时不会写入。", "Out-of-matrix host versions are never written to.")}>
         <div className="grid-3">
-          <div className="fact"><strong>morphd</strong>{app.status?.app_version || "0.5.0"}</div>
+          <div className="fact"><strong>harness2-morphd</strong>{app.status?.app_version || "0.5.0"}</div>
           <div className="fact"><strong>Harness²</strong>1cfe254e8d25</div>
           <div className="fact"><strong>dsh</strong>0.2.1-rc.2</div>
           <div className="fact"><strong>Codex</strong>0.144.6</div>

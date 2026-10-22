@@ -297,8 +297,8 @@ export function ProviderForm({
           <p className="sub">
             {form.data_policy ||
               l(
-                "请求会直接发送到你填写的端点，使用你的 Key；morphd 不做代理，也不转售模型调用。",
-                "Requests go directly to your endpoint with your key; morphd does not proxy or resell model calls.",
+                "请求会直接发送到你填写的端点，使用你的 Key；harness2-morphd 不做代理，也不转售模型调用。",
+                "Requests go directly to your endpoint with your key; harness2-morphd does not proxy or resell model calls.",
               )}
           </p>
         </div>
@@ -386,8 +386,8 @@ export function ProviderForm({
           onChange={(next) => patch({ confirmed: next })}
           label={l("确认价格（未知价格不运行）", "Confirm price (unknown price blocks analysis)")}
           hint={l(
-            "未确认且价格为 0 时，morphd 会拒绝启动分析，避免把未知成本当 0。",
-            "When unconfirmed and zero, morphd refuses to start analysis rather than treating unknown cost as zero.",
+            "未确认且价格为 0 时，harness2-morphd 会拒绝启动分析，避免把未知成本当 0。",
+            "When unconfirmed and zero, harness2-morphd refuses to start analysis rather than treating unknown cost as zero.",
           )}
           disabled={local}
         />

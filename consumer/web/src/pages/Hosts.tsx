@@ -127,15 +127,15 @@ export function Hosts() {
       <Section
         title={l("已适配的宿主", "Adapted hosts")}
         subtitle={l(
-          "UI 与引擎随宿主启停；关闭宿主后不会留下 morphd 进程、端口、计划任务或托盘。",
-          "The UI and engine follow the host lifecycle. When the host exits, no morphd process, port, scheduled task, or tray remains.",
+          "UI 与引擎随宿主启停；关闭宿主后不会留下 harness2-morphd 进程、端口、计划任务或托盘。",
+          "The UI and engine follow the host lifecycle. When the host exits, no harness2-morphd process, port, scheduled task, or tray remains.",
         )}
       >
         {installed.length === 0 ? (
           <EmptyState icon="host" title={l("还没有适配任何宿主", "No host adapted yet")}>
             {l(
               "可以自动发现 dsh、Claude Code、Codex；找不到时手动选择安装目录。",
-              "morphd can discover dsh, Claude Code, and Codex. If not found, choose the install folder manually.",
+              "harness2-morphd can discover dsh, Claude Code, and Codex. If not found, choose the install folder manually.",
             )}
           </EmptyState>
         ) : (
@@ -205,8 +205,8 @@ export function Hosts() {
         {candidates.length === 0 ? (
           <EmptyState icon="terminal" title={l("没有发现可适配的宿主", "No adaptable host found")}>
             {l(
-              "确认宿主已安装并在 PATH 中；或使用“手动指定文件夹”。morphd 不会自动安装或升级宿主。",
-              "Make sure the host is installed and on PATH, or choose a folder manually. morphd never installs or upgrades the host.",
+              "确认宿主已安装并在 PATH 中；或使用“手动指定文件夹”。harness2-morphd 不会自动安装或升级宿主。",
+              "Make sure the host is installed and on PATH, or choose a folder manually. harness2-morphd never installs or upgrades the host.",
             )}
           </EmptyState>
         ) : (
@@ -308,8 +308,8 @@ export function Hosts() {
         >
           <p>
             {l(
-              "morphd 会先备份将被修改的宿主配置，写入 wrapper/hook，然后执行无模型自检。任何一步失败都会回滚。",
-              "morphd backs up any host config it modifies, writes the wrapper/hook, then runs a zero-model self-check. Any failure rolls back.",
+              "harness2-morphd 会先备份将被修改的宿主配置，写入 wrapper/hook，然后执行无模型自检。任何一步失败都会回滚。",
+              "harness2-morphd backs up any host config it modifies, writes the wrapper/hook, then runs a zero-model self-check. Any failure rolls back.",
             )}
           </p>
           <Field
@@ -408,8 +408,8 @@ export function Hosts() {
           </Field>
           <InfoNote tone="warn" icon="alert">
             {l(
-              "只选择项目文件夹不等于适配成功；morphd 会明确标注“未连接宿主”，不会承诺自动触发。",
-              "Choosing only a project folder is not adaptation; morphd will clearly show “host not connected” and will not promise automatic triggers.",
+              "只选择项目文件夹不等于适配成功；harness2-morphd 会明确标注“未连接宿主”，不会承诺自动触发。",
+              "Choosing only a project folder is not adaptation; harness2-morphd will clearly show “host not connected” and will not promise automatic triggers.",
             )}
           </InfoNote>
         </Modal>
@@ -434,7 +434,7 @@ export function Hosts() {
             )}
           </p>
           <p className="sub">
-            {l("之后可在隐私页选择是否删除本地 morphd 数据。", "You can delete local morphd data separately on the Privacy page.")}
+            {l("之后可在隐私页选择是否删除本地 harness2-morphd 数据。", "You can delete local morphd data separately on the Privacy page.")}
           </p>
         </ConfirmDialog>
       ) : null}
@@ -453,7 +453,7 @@ export function Hosts() {
         >
           <p>
             {l(
-              "会恢复这个项目最早的快照，并移除 morphd 应用过的候选文件。不会删除你的 Key、设置或证据历史。",
+              "会恢复这个项目最早的快照，并移除 harness2-morphd 应用过的候选文件。不会删除你的 Key、设置或证据历史。",
               "Restores this project's earliest snapshot and removes files added by applied suggestions. Keys, settings, and evidence history are kept.",
             )}
           </p>

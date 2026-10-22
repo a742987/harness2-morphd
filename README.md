@@ -1,13 +1,13 @@
-# morphd
+# harness2-morphd
 
 > 让 Agent 自己变好，但不打扰你。
 
-morphd 是一个**本地优先、宿主内运行**的 Agent harness 自动优化产品：照常使用
+harness2-morphd 是一个**本地优先、宿主内运行**的 Agent harness 自动优化产品：照常使用
 **dsh / Claude Code / Codex**，每次会话结束后安静总结；当出现失败、反复纠正或工具循环时，
 用你自带的模型（BYOK）生成一条可理解、可预算、可撤销的改进建议。默认只建议，不自动改；
 所有应用都有快照，所有自动应用都有试用与回滚。
 
-![morphd home](docs/evidence/ui/home-light.png)
+![harness2-morphd home](docs/evidence/ui/home-light.png)
 
 - **PRD**：[`PRD-v0.5.md`](PRD-v0.5.md)（唯一产品定义，附录 C 为实现契约）
 - **License**：Apache-2.0。上游 Harness² 保持原样，不修改、不 fork。
@@ -62,9 +62,9 @@ fragment 中，不进入日志或查询参数；页面交换为 HttpOnly、SameS
 ### NPM（发布后）
 
 ```sh
-npx @morphd/cli@latest setup
-npx @morphd/cli@latest doctor
-npx @morphd/cli@latest uninstall
+npx @harness2-morphd/cli@latest setup
+npx @harness2-morphd/cli@latest doctor
+npx @harness2-morphd/cli@latest uninstall
 ```
 
 `setup` 完成宿主检测/适配，并打开三步引导 UI（宿主、模型/BYOK、预算与隐私）。
@@ -95,7 +95,7 @@ Electron 只做桌面壳：加载与浏览器相同的本地 UI，托盘随宿�
 
 ```
 宿主启动 / wrapper
-  └─ morphd 本地服务（127.0.0.1，随机端口） + 任务运行器（并发 1）
+  └─ harness2-morphd 本地服务（127.0.0.1，随机端口） + 任务运行器（并发 1）
        ├─ 会话结束 → 记录 SessionRecord（隐身/暂停除外）
        ├─ triage：零模型调用；无信号 → noop，$0
        ├─ 有信号 → 构造任务（脱敏 workspace + U1..Um）
@@ -190,8 +190,8 @@ consumer/
   web/                     # React + Vite + TypeScript UI
   electron/                # Electron main/preload/tray/打包配置
 packages/
-  cli/                     # @morphd/cli
-  tray/                    # @morphd/tray
+  cli/                     # @harness2-morphd/cli
+  tray/                    # @harness2-morphd/tray
   platform/                # 平台包清单与构建说明
 deploy/container/          # 企业严格模式的容器边界
 docs/                      # 架构、运行、兼容、隐私、条款、验证、ADR、UI 证据
@@ -251,7 +251,7 @@ Claude `SessionEnd` hook。没有原生 hook 时，会话结束分析在下次�
 
 - 本仓库未包含签名的 Windows `.exe`、macOS notarization、平台二进制或 npm 正式发布；
   `packages/platform/*` 是发布清单，需在 CI 中填入签名引擎后发布。
-- npm `@morphd/*` 名称/组织需在发布前确认可用。
+- npm `@harness2-morphd/*` 名称/组织需在发布前确认可用。
 - dsh 原生 Cordis 插件接口、Codex 事件/续跑、Claude `stream-json` 的完整 schema 未做真实
   环境验收；以 `n/a`/beta 标注，不用 0 或空轨迹替代。
 - NPM 桌面托盘 helper 依赖可选 `pystray`/`Pillow`；缺失或无桌面环境时明确降级为浏览器 UI。

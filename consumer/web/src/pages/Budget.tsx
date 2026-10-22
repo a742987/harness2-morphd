@@ -43,8 +43,8 @@ export function Budget() {
       <PageHeader
         title={l("预算与花费", "Budget and spend")}
         subtitle={l(
-          "三层硬上限：月度、单会话、单次分析。morphd 在模型调用前做最坏情况预检，超限就不启动。",
-          "Three hard limits: monthly, per session, per analysis. morphd pre-checks the worst case before any model call and never starts when over budget.",
+          "三层硬上限：月度、单会话、单次分析。harness2-morphd 在模型调用前做最坏情况预检，超限就不启动。",
+          "Three hard limits: monthly, per session, per analysis. harness2-morphd pre-checks the worst case before any model call and never starts when over budget.",
         )}
       />
       {error ? <ErrorBanner error={app.handleError(error)} /> : null}
@@ -184,8 +184,8 @@ export function Budget() {
         )}
         <InfoNote icon="budget">
           {l(
-            "价格以服务商实际账单为准。morphd 记录估算成本与实际 usage；未知 usage 按保守估算计入，不按 0。",
-            "The provider bill is authoritative. morphd records estimated cost and actual usage; unknown usage is charged at a conservative estimate, never zero.",
+            "价格以服务商实际账单为准。harness2-morphd 记录估算成本与实际 usage；未知 usage 按保守估算计入，不按 0。",
+            "The provider bill is authoritative. harness2-morphd records estimated cost and actual usage; unknown usage is charged at a conservative estimate, never zero.",
           )}
         </InfoNote>
       </Section>

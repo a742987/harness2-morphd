@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Visual smoke check against a running local morphd service.
+// Visual smoke check against a running local harness2-morphd service.
 // Usage: URL='http://127.0.0.1:PORT/#bootstrap=...' EDGE='C:\...\msedge.exe' \
 //        OUT='D:\...\docs\evidence\ui' node scripts/visual-check.mjs
 import { chromium } from "playwright-core";

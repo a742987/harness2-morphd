@@ -257,7 +257,7 @@ export function Home() {
     if (budget?.blocked) reasons.push(l("本月预算已用完。", "This month's budget is exhausted."));
     if (app.status?.learning.focus) reasons.push(l("会话进行中：专注模式不展示建议。", "A session is active: focus mode hides suggestions."));
     if (app.sessions.every((session) => session.status === "noop")) reasons.push(l("最近会话没有需要改进的信号，零成本跳过。", "Recent sessions had no learning signal and were skipped at zero cost."));
-    if (app.candidates.length === 0 && reasons.length === 0) reasons.push(l("还没有可展示的建议；morphd 不会为了凑数而分析。", "No suggestions to show; morphd does not analyze just to fill space."));
+    if (app.candidates.length === 0 && reasons.length === 0) reasons.push(l("还没有可展示的建议；harness2-morphd 不会为了凑数而分析。", "No suggestions to show; harness2-morphd does not analyze just to fill space."));
     return reasons;
   };
 
@@ -266,8 +266,8 @@ export function Home() {
       <PageHeader
         title={l(`你好，今天想改哪一点？`, "What should get better today?")}
         subtitle={l(
-          "morphd 在宿主里安静运行：每次会话结束后总结，只在有安全、可解释的改进时提醒你。",
-          "morphd runs quietly inside your host: it summarizes each session and only surfaces safe, explainable improvements.",
+          "harness2-morphd 在宿主里安静运行：每次会话结束后总结，只在有安全、可解释的改进时提醒你。",
+          "harness2-morphd runs quietly inside your host: it summarizes each session and only surfaces safe, explainable improvements.",
         )}
         actions={
           <>
@@ -421,8 +421,8 @@ export function Home() {
               }
             >
               {l(
-                "morphd 不会为了用满预算而分析。没有信号时会零成本跳过。",
-                "morphd will not analyze just to use up budget. No signal means a zero-cost skip.",
+                "harness2-morphd 不会为了用满预算而分析。没有信号时会零成本跳过。",
+                "harness2-morphd will not analyze just to use up budget. No signal means a zero-cost skip.",
               )}
             </EmptyState>
           ) : (
@@ -518,8 +518,8 @@ export function Home() {
         {app.sessions.length === 0 ? (
           <EmptyState icon="terminal" title={l("还没有会话记录", "No sessions recorded yet")}>
             {l(
-              "照常使用 Agent。下一次会话结束后，morphd 会自动总结（隐身/暂停除外）。",
-              "Keep using your agent. morphd summarizes after the next session ends, unless incognito or paused.",
+              "照常使用 Agent。下一次会话结束后，harness2-morphd 会自动总结（隐身/暂停除外）。",
+              "Keep using your agent. harness2-morphd summarizes after the next session ends, unless incognito or paused.",
             )}
           </EmptyState>
         ) : (
@@ -572,8 +572,8 @@ export function Home() {
           <p className="sub">{confirmApply.risk}</p>
           <InfoNote icon="undo">
             {l(
-              "应用前会自动快照；可在历史中一键撤销。若目标文件被你手动改过，morphd 会停止而不是覆盖。",
-              "A snapshot is created first; revert from History. If you edited a target file, morphd stops instead of overwriting.",
+              "应用前会自动快照；可在历史中一键撤销。若目标文件被你手动改过，harness2-morphd 会停止而不是覆盖。",
+              "A snapshot is created first; revert from History. If you edited a target file, harness2-morphd stops instead of overwriting.",
             )}
           </InfoNote>
         </ConfirmDialog>
@@ -643,8 +643,8 @@ export function Home() {
           )}
           <InfoNote icon="spark">
             {l(
-              "没有建议也是正常工作状态。morphd 默认每周最多 2 条主动建议，其余进入待看。",
-              "No suggestion is a normal state. morphd shows at most 2 proactive suggestions a week; the rest stay in the inbox.",
+              "没有建议也是正常工作状态。harness2-morphd 默认每周最多 2 条主动建议，其余进入待看。",
+              "No suggestion is a normal state. harness2-morphd shows at most 2 proactive suggestions a week; the rest stay in the inbox.",
             )}
           </InfoNote>
         </Modal>

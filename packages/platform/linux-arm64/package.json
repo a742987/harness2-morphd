@@ -1,7 +1,7 @@
 {
-  "name": "@morphd/linux-arm64",
+  "name": "@harness2-morphd/linux-arm64",
   "version": "0.5.0",
-  "description": "morphd engine and UI assets for linux-arm64",
+  "description": "harness2-morphd engine and UI assets for linux-arm64",
   "license": "Apache-2.0",
   "os": [
     "linux"

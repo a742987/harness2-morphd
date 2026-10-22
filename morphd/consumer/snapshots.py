@@ -1,4 +1,4 @@
-"""Pre-apply snapshots of the harness files morphd is allowed to edit."""
+"""Pre-apply snapshots of the harness files harness2-morphd is allowed to edit."""
 
 from __future__ import annotations
 

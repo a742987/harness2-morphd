@@ -196,7 +196,7 @@ class Analyzer:
         if estimate is None:
             raise ConsumerError(
                 "BUDGET_UNKNOWN_PRICE",
-                "这个模型的价格还没有确认，morphd 不会按 0 计费。",
+                "这个模型的价格还没有确认，harness2-morphd 不会按 0 计费。",
                 "在模型页填写估算价格并确认。",
             )
         budget_cfg = effective.get("budget", {})

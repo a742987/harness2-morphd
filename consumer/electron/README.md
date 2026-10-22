@@ -1,4 +1,4 @@
-# @morphd/desktop
+# @harness2-morphd/desktop
 
 The desktop shell for Windows (C0), macOS and Linux (C1). It is **not** a second engine.
 

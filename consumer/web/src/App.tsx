@@ -23,14 +23,14 @@ function BootScreen() {
     <div className="boot-screen">
       <div>
         <div className="boot-mark" aria-hidden="true">m</div>
-        <h1>morphd</h1>
+        <h1>harness2-morphd</h1>
         <p className="sub mt-8">{l("正在连接本地服务…", "Connecting to the local service…")}</p>
         <div className="skeleton-stack mt-16" aria-hidden="true">
           <div className="skeleton" />
           <div className="skeleton" />
         </div>
         {app.fatal ? (
-          <p className="sub mt-16">{l("如果页面一直停在这里，请重新打开宿主后从菜单进入。", "If this persists, reopen the host and launch morphd from its menu.")}</p>
+          <p className="sub mt-16">{l("如果页面一直停在这里，请重新打开宿主后从菜单进入。", "If this persists, reopen the host and launch harness2-morphd from its menu.")}</p>
         ) : null}
       </div>
     </div>
@@ -46,8 +46,8 @@ function Disconnected() {
         <h1>{l("已断开", "Disconnected")}</h1>
         <p className="sub mt-8">
           {l(
-            "宿主或 morphd 已退出。页面不会在后台继续工作，也不会继续产生费用。",
-            "The host or morphd exited. This page does no work in the background and incurs no cost.",
+            "宿主或 harness2-morphd 已退出。页面不会在后台继续工作，也不会继续产生费用。",
+            "The host or harness2-morphd exited. This page does no work in the background and incurs no cost.",
           )}
         </p>
         <div className="note note-warn mt-16">
@@ -56,8 +56,8 @@ function Disconnected() {
             <strong>{l("如何重新打开", "How to reopen")}</strong>
             <p className="sub">
               {l(
-                "重新启动宿主，使用适配时生成的 wrapper，或从宿主菜单打开 morphd。浏览器标签无法自行恢复。",
-                "Restart the host with the adapted wrapper, or open morphd from the host menu. A browser tab cannot recover itself.",
+                "重新启动宿主，使用适配时生成的 wrapper，或从宿主菜单打开 harness2-morphd。浏览器标签无法自行恢复。",
+                "Restart the host with the adapted wrapper, or open harness2-morphd from the host menu. A browser tab cannot recover itself.",
               )}
             </p>
           </div>
@@ -164,7 +164,7 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     // Do not print session content; the error is local to the renderer.
-    console.error("morphd ui error", error.name, info.componentStack?.slice(0, 400));
+    console.error("harness2-morphd ui error", error.name, info.componentStack?.slice(0, 400));
   }
 
   render() {

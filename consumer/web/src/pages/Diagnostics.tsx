@@ -139,7 +139,7 @@ export function Diagnostics() {
       <div className="stat-grid mb-24">
         <div className="stat stat-accent">
           <span className="stat-value">{diag?.app_version || "—"}</span>
-          <span className="stat-label">morphd</span>
+          <span className="stat-label">harness2-morphd</span>
         </div>
         <div className="stat">
           <span className="stat-value">{diag?.disk.files ?? "—"}</span>

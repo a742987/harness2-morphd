@@ -85,8 +85,8 @@ def run_tray(home: Path) -> int:
 
     def refresh_text() -> str:
         if learning.get("paused"):
-            return "morphd · 已暂停"
-        return "morphd · 学习中"
+            return "harness2-morphd · 已暂停"
+        return "harness2-morphd · 学习中"
 
     def open_ui(icon, item):
         webbrowser.open(str(info.get("url", info.get("base_url", ""))))
@@ -99,7 +99,7 @@ def run_tray(home: Path) -> int:
         icon.update_menu()
 
     def incognito(icon=None, item=None):
-        state["text"] = "morphd · 下一次会话隐身"
+        state["text"] = "harness2-morphd · 下一次会话隐身"
         _http(home, "POST", "/api/sessions/incognito", {"active": True})
         icon.update_menu()
 
@@ -110,7 +110,7 @@ def run_tray(home: Path) -> int:
         now = time.monotonic()
         if now - state["confirm_stop"] > 5:
             state["confirm_stop"] = now
-            state["text"] = "morphd · 再次点击“停止学习并退出”确认"
+            state["text"] = "harness2-morphd · 再次点击“停止学习并退出”确认"
             icon.update_menu()
             return
         marker = home / "runtime" / "shell-quit"
@@ -123,7 +123,7 @@ def run_tray(home: Path) -> int:
 
     def status_text(icon, item):
         state["text"] = (
-            f"morphd · {'已暂停' if learning.get('paused') else '学习中'}\n"
+            f"harness2-morphd · {'已暂停' if learning.get('paused') else '学习中'}\n"
             f"本月 ${float(budget.get('spent') or 0):.2f} / ${float(budget.get('limit') or 0):.2f}"
         )
         return state["text"]
@@ -133,7 +133,7 @@ def run_tray(home: Path) -> int:
 
         return pystray.Menu(
             pystray.MenuItem(state["text"] or refresh_text(), lambda icon, item: None, enabled=False),
-            pystray.MenuItem("打开 morphd", open_ui, default=True),
+            pystray.MenuItem("打开 harness2-morphd", open_ui, default=True),
             pystray.MenuItem("打开设置", lambda icon, item: webbrowser.open(str(info.get("url", "")))),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("状态", status_text),

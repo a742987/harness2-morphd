@@ -318,7 +318,7 @@ export function CandidateDetailModal({
             <p className="sub">
               <Icon name="alert" size={14} />{" "}
               {l(
-                "“没用/不对”会立即撤销已应用的改动；连续忽略或负反馈会让 morphd 自动降频。",
+                "“没用/不对”会立即撤销已应用的改动；连续忽略或负反馈会让 harness2-morphd 自动降频。",
                 "Not useful / wrong reverts an applied change immediately; repeated ignores or negative feedback reduce frequency automatically.",
               )}
             </p>

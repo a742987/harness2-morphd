@@ -147,8 +147,8 @@ export function History() {
           {inbox.length === 0 ? (
             <EmptyState icon="spark" title={l("待看为空", "Inbox empty")}>
               {l(
-                "morphd 不会为了凑数而生成建议。没有信号时会零成本跳过。",
-                "morphd does not generate suggestions just to fill space. No signal means a zero-cost skip.",
+                "harness2-morphd 不会为了凑数而生成建议。没有信号时会零成本跳过。",
+                "harness2-morphd does not generate suggestions just to fill space. No signal means a zero-cost skip.",
               )}
             </EmptyState>
           ) : (

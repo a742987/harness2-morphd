@@ -57,7 +57,7 @@ export function waitForServer(home: string, timeoutMs = 15000): Promise<ServerIn
       }
       if (Date.now() - started > timeoutMs) {
         clearInterval(timer);
-        reject(new Error("morphd UI server did not start"));
+        reject(new Error("harness2-morphd UI server did not start"));
       }
     }, 250);
   });
@@ -83,7 +83,7 @@ export function findEngine(): EngineSpec {
   ]) {
     if (existsSync(candidate)) return { command: candidate, prefix: [] };
   }
-  const platform = `@morphd/${process.platform}-${process.arch}`;
+  const platform = `@harness2-morphd/${process.platform}-${process.arch}`;
   try {
     const manifest = require.resolve(`${platform}/package.json`);
     const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { morphd?: { engine?: string } };
@@ -99,7 +99,7 @@ export function findEngine(): EngineSpec {
     if (probe.status === 0) return { command: python, prefix: ["-m", "morphd"] };
   }
   throw new Error(
-    `No morphd engine found for ${process.platform}-${process.arch}. ` +
+    `No harness2-morphd engine found for ${process.platform}-${process.arch}. ` +
       "Ship the platform engine under resources/engine or set MORPHD_ENGINE_BIN.",
   );
 }

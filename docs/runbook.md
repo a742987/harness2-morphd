@@ -1,7 +1,7 @@
 # Runbook
 
 This runbook covers the consumer product and the retained advanced engine path. There is no
-scheduled morphd process: no cron, systemd, launchd, Task Scheduler, daemon, or cloud queue.
+scheduled harness2-morphd process: no cron, systemd, launchd, Task Scheduler, daemon, or cloud queue.
 
 ## 1. Install
 
@@ -19,8 +19,8 @@ morphd setup --host dsh --project /srv/project
 ### NPM (published path)
 
 ```sh
-npx @morphd/cli@latest setup
-npx @morphd/cli@latest doctor
+npx @harness2-morphd/cli@latest setup
+npx @harness2-morphd/cli@latest doctor
 ```
 
 - Node `>=20`; the launcher does not use sudo, `curl | sh`, or arbitrary postinstall.
@@ -74,7 +74,7 @@ explicit confirmation, a budget lock, auto-rollback, and a snapshot.
 ## 5. Budget
 
 - Three limits: monthly, per session, per analysis; all are hard stops *before* the next call.
-- Unknown prices block analysis until confirmed or estimated; morphd never treats them as $0
+- Unknown prices block analysis until confirmed or estimated; harness2-morphd never treats them as $0
   or silently uses a fallback.
 - The Budget page shows estimated spend and per-kind/model breakdown. The provider bill is
   authoritative.
@@ -142,7 +142,7 @@ morphd rollback --runtime dsh --snapshot <id>
 ## 10. Uninstall checklist
 
 - [ ] All host wrappers/hooks removed and backups restored.
-- [ ] No morphd process, listening port, scheduled task, service, or orphan tray.
+- [ ] No harness2-morphd process, listening port, scheduled task, service, or orphan tray.
 - [ ] Optional local data deleted or retained as chosen.
 - [ ] Provider keys removed from Keychain/vault.
 - [ ] Host itself untouched.

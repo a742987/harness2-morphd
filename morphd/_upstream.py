@@ -46,7 +46,7 @@ def load() -> ModuleType:
     hint = (
         "Harness² is not importable. Install the pinned upstream with "
         "`pip install -e ../harness2` (commit 1cfe254e8d25) or set "
-        "MORPHD_HARNESS2_SRC to its checkout. morphd never patches upstream."
+        "MORPHD_HARNESS2_SRC to its checkout. harness2-morphd never patches upstream."
     )
     for path in _candidate_paths():
         if (path / "harness2" / "__init__.py").is_file():

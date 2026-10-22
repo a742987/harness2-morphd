@@ -442,7 +442,7 @@ class ConsumerService:
         kind = str(payload.get("host") or "")
         record = self.hosts.record_for(kind)
         if record is None:
-            raise ConsumerError("HOST_NOT_FOUND", "还没有为你安装 morphd。", "先完成宿主适配。")
+            raise ConsumerError("HOST_NOT_FOUND", "还没有为你安装 harness2-morphd。", "先完成宿主适配。")
         project_root = payload.get("project_root") or record.get("project_root") or Path.cwd()
         return self.candidates.restore_original(
             host=kind, project_root=str(project_root), confirm=bool(payload.get("confirm"))

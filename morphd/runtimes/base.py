@@ -381,7 +381,7 @@ class BaseAdapter:
             raise RuntimeError_("obs_trunc must be >= 10000")
         if not self.spec.leak_globs:
             raise RuntimeError_(
-                "BenchSpec.leak_globs is empty; morphd refuses to run when criteria/answer "
+                "BenchSpec.leak_globs is empty; harness2-morphd refuses to run when criteria/answer "
                 "paths are not declared"
             )
         base = self.base_harness()

@@ -1,5 +1,5 @@
-morphd
-Copyright 2026 morphd contributors
+harness2-morphd
+Copyright 2026 harness2-morphd contributors
 Licensed under the Apache License, Version 2.0.
 
 This product includes an unmodified copy of Harness²:
@@ -11,5 +11,5 @@ This product includes an unmodified copy of Harness²:
   Location: vendor/harness2-src/
 
 The copy is used only as a pinned upstream dependency for local development and
-testing. morphd does not modify it. See vendor/harness2-src/PROVENANCE.md and
+testing. harness2-morphd does not modify it. See vendor/harness2-src/PROVENANCE.md and
 vendor/harness2-src/LICENSE.

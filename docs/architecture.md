@@ -1,6 +1,6 @@
 # Architecture
 
-morphd v0.5 has two layers:
+harness2-morphd v0.5 has two layers:
 
 1. **Engine** (`morphd/`): the pinned Harness² recursion, runtime substrates/adapters, task
    contract, run evidence, metrics, budgets, security scanning, evaluation and promotion.
@@ -13,7 +13,7 @@ policy decisions happen in the local engine/API.
 
 ```
 Host process / wrapper
-  └─ morphd local service
+  └─ harness2-morphd local service
        ├─ lifecycle manager: startup, shutdown, checkpoint, recovery
        ├─ session observer: dsh log watcher / Claude SessionEnd hook / Codex wrapper exit
        ├─ job runner (concurrency 1): triage → propose → validate → candidate

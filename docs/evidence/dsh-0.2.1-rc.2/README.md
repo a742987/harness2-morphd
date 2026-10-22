@@ -2,7 +2,7 @@
 
 Pinned source: `deepseek-ai/deepseek-harness` tag `dsh-v0.2.1-rc.2`, commit `687f282e8625`.
 
-## Contract facts used by morphd
+## Contract facts used by harness2-morphd
 
 - Headless: one task per invocation; `--json` event stream; opening `session` event carries
   `sessionId`; `--session-id` adopts a persisted session; exit 0 only for completed turns.
@@ -11,10 +11,10 @@ Pinned source: `deepseek-ai/deepseek-harness` tag `dsh-v0.2.1-rc.2`, commit `687
 - Profiles: `$DSH_HOME/profiles/<id>/package.json` with `dsh.profile.bundles`, and
   `cordis.patch.yml`; a profile without the headless bundle has no runner.
 - Approval: `ask` delegates to composed answerers; no answerer fails closed; `never` rejects
-  every ask. morphd mounts a controlled answerer only in offline profiles.
+  every ask. harness2-morphd mounts a controlled answerer only in offline profiles.
 - Credentials: managed `$DSH_HOME/.credentials.yaml` outranks env, cwd `.env`, home `.env`.
-  morphd never writes that file into a variant home and passes credentials via env.
-- Sandbox: file effects only. morphd fixes `workspace-write` + `ask` and removes the
+  harness2-morphd never writes that file into a variant home and passes credentials via env.
+- Sandbox: file effects only. harness2-morphd fixes `workspace-write` + `ask` and removes the
   `danger-full-access` preset from generated profiles.
 
 ## Live checks (M0)

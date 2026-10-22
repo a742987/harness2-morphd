@@ -132,7 +132,7 @@ PROVIDER_CATALOG = {
             "per_call_usd": 0.0,
             "confirmed": True,
         },
-        "data_policy": "Runs on this computer; morphd never sends these requests to the cloud.",
+        "data_policy": "Runs on this computer; harness2-morphd never sends these requests to the cloud.",
         "help_url": "https://ollama.com",
         "local": True,
     },
