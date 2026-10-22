@@ -1,0 +1,28 @@
+{
+  "name": "@morphd/tray",
+  "version": "0.5.0",
+  "description": "Optional runtime tray helper for the browser/NPM path",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "morphd-tray": "src/index.js"
+  },
+  "files": ["src", "README.md", "LICENSE", "NOTICE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/tray.test.mjs"
+  },
+  "optionalDependencies": {
+    "@morphd/linux-x64": "0.5.0",
+    "@morphd/linux-arm64": "0.5.0",
+    "@morphd/darwin-x64": "0.5.0",
+    "@morphd/darwin-arm64": "0.5.0",
+    "@morphd/win32-x64": "0.5.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,0 +1,65 @@
+# Runtime price table. P3 owns this file and must review it monthly.
+# `confirmed: false` blocks real runs (morphd run/evaluate); --dry-run still works.
+# All money is USD. Token estimates are conservative per single model call.
+version: 1
+confirmed: false
+currency: USD
+updated: "2026-10-21"
+source: "Internal rate card — replace with the provider contract before use"
+
+runtimes:
+  dsh:
+    model_env: MORPHD_DSH_MODEL
+    input_per_million: 0.28
+    cached_input_per_million: 0.028
+    cache_write_per_million: 0.28
+    output_per_million: 0.42
+    reasoning_per_million: 0.42
+    per_call_usd: 0.0
+    estimate:
+      input_tokens: 12000
+      output_tokens: 1500
+  codex:
+    model_env: MORPHD_CODEX_MODEL
+    input_per_million: 1.25
+    cached_input_per_million: 0.125
+    cache_write_per_million: 1.25
+    output_per_million: 10.00
+    reasoning_per_million: 10.00
+    per_call_usd: 0.0
+    estimate:
+      input_tokens: 15000
+      output_tokens: 2000
+  claude-code:
+    model_env: MORPHD_CLAUDE_MODEL
+    input_per_million: 3.00
+    cached_input_per_million: 0.30
+    cache_write_per_million: 3.75
+    output_per_million: 15.00
+    reasoning_per_million: 15.00
+    per_call_usd: 0.0
+    estimate:
+      input_tokens: 15000
+      output_tokens: 2000
+
+proposer:
+  estimate:
+    input_tokens: 20000
+    output_tokens: 4000
+  channels:
+    claude_cli:
+      input_per_million: 3.00
+      cached_input_per_million: 0.30
+      cache_write_per_million: 3.75
+      output_per_million: 15.00
+      reasoning_per_million: 15.00
+      per_call_usd: 0.0
+    opencode:
+      input_per_million: 3.00
+      cached_input_per_million: 0.30
+      cache_write_per_million: 3.75
+      output_per_million: 15.00
+      reasoning_per_million: 15.00
+      per_call_usd: 0.0
+
+unknown_usage_usd: 0.25

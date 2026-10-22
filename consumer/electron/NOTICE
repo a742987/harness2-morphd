@@ -1,0 +1,15 @@
+morphd
+Copyright 2026 morphd contributors
+Licensed under the Apache License, Version 2.0.
+
+This product includes an unmodified copy of Harness²:
+  Harness²: Recursive Agent Harnessing for an Open World
+  Copyright 2026 Google LLC
+  Licensed under the Apache License, Version 2.0.
+  Source: https://github.com/google-research/harness2
+  Commit: 1cfe254e8d25
+  Location: vendor/harness2-src/
+
+The copy is used only as a pinned upstream dependency for local development and
+testing. morphd does not modify it. See vendor/harness2-src/PROVENANCE.md and
+vendor/harness2-src/LICENSE.

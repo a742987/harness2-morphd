@@ -1,0 +1,15 @@
+{
+  "name": "morphd-workspace",
+  "private": true,
+  "version": "0.5.0",
+  "description": "Local-first agent harness improvement",
+  "scripts": {
+    "web:install": "npm --prefix consumer/web install",
+    "web:build": "npm --prefix consumer/web run build",
+    "web:test": "npm --prefix consumer/web test",
+    "cli:test": "npm --prefix packages/cli test",
+    "electron:build": "npm --prefix consumer/electron run build",
+    "electron:test": "npm --prefix consumer/electron test",
+    "test": "npm run web:test && npm run cli:test && npm run electron:test"
+  }
+}

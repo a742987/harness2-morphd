@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+import sys, os, json, uuid, time
+from pathlib import Path
+args = sys.argv[1:]
+if '--version' in args:
+    print('0.2.1-rc.2')
+    raise SystemExit(0)
+if '--dump-config' in args:
+    print('- id: sandbox-policy\n  name: fake\n  config:\n    mode: workspace-write\n    workspaceRoot: !!js process.cwd()\n- id: approval\n  config:\n    policy: ask\n- id: agent-default-model\n  config:\n    provider: deepseek-official\n    model: fake\n')
+    raise SystemExit(0)
+if '--profile' not in args:
+    print('no profile', file=sys.stderr); raise SystemExit(2)
+sid = None
+if '--session-id' in args:
+    sid = args[args.index('--session-id') + 1]
+prompt = args[-1]
+home = Path(os.environ['DSH_HOME'])
+cwd = Path.cwd()
+proj = '--' + str(cwd).replace('/', '_') + '--'
+sdir = home / 'sessions' / proj
+files = sorted(sdir.rglob('session*.jsonl*')) if sdir.exists() else []
+if files:
+    path = files[-1]
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    header = rows[0]; events = rows[1:]
+    sid = header['id']
+    maxseq = max([e.get('seq', -1) for e in events] + [-1])
+    turn = sum(1 for e in events if e.get('type') == 'turn/start') + 1
+else:
+    sid = sid or f'session-fake-{uuid.uuid4().hex[:8]}'
+    sdir = sdir / sid; sdir.mkdir(parents=True)
+    path = sdir / 'session.v3.jsonl'
+    header = {'type':'session','version':3,'id':sid,'createdAt':int(time.time()*1000),'cwd':str(cwd),'isSeeded':False,'delegationDepth':0}
+    events = []
+    maxseq = -1
+    turn = 1
+seq = maxseq
+def add(etype, data):
+    global seq
+    seq += 1
+    events.append({'type': etype, 'seq': seq, 'time': int(time.time()*1000), 'data': data})
+    if etype == 'tool/call' and os.environ.get('FAKE_TOOL_LOOP'):
+        for i in range(3):
+            seq += 1
+            events.append({'type':'tool/call','seq':seq,'time':0,'data':{'turn':turn,'step':1,'callId':f'l{turn}{i}','name':'bash','arguments':'false'}})
+            seq += 1
+            events.append({'type':'tool/result','seq':seq,'time':0,'data':{'turn':turn,'step':1,'message':{'role':'tool','id':f'lt{turn}{i}','toolCallId':f'l{turn}{i}','isError':True,'content':[{'type':'text','text':'same error'}]},'error':{'name':'E','code':'SAME'}}})
+if os.environ.get('FAKE_APPROVALS'):
+    with open(os.environ.get('MORPHD_APPROVALS_LOG', os.devnull), 'a') as f:
+        f.write(json.dumps({'ts':time.time(),'tool':'bash','decision':'allowed-once','rule':'allowlisted'})+'\n')
+        f.write(json.dumps({'ts':time.time(),'tool':'bash','decision':'rejected','rule':'deny-pattern'})+'\n')
+add('turn/start', {'turn': turn})
+add('user/message', {'role':'user','id':f'm{seq}','content':[{'type':'text','text':prompt}],'source':{'kind':'user'}})
+add('step/start', {'turn': turn, 'step': 1})
+add('tool/call', {'turn':turn,'step':1,'callId':f'c{turn}','name':'bash','arguments':'{"command":"echo hi"}'})
+add('tool/result', {'turn':turn,'step':1,'message':{'role':'tool','id':'t1','toolCallId':f'c{turn}','isError':True,'content':[{'type':'text','text':'boom'}]},'error':{'name':'BashError','code':'EBOOM'}})
+add('approval/decided', {'id':'a1','outcome':'rejected'})
+add('assistant/message', {'turn': turn, 'step': 1, 'message':{'role':'assistant','id':f'a{turn}','content':[{'type':'text','text':'working'}],'source':{'kind':'model','provider':'fake','model':'fake'}}, 'usage':{'inputTokens':100,'outputTokens':20,'cacheReadTokens':10,'reasoningTokens':5}})
+add('step/end', {'turn': turn, 'step': 1})
+fail = ('FAIL_FIRST' in prompt and turn == 1)
+if os.environ.get('FAKE_DSH_REQUIRE_MARKER'):
+    agents = cwd / 'AGENTS.md'
+    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(errors='replace'):
+        fail = True
+if os.environ.get('FAKE_DSH_UNKNOWN'):
+    reason = {'kind': 'future-kind'}
+elif fail:
+    reason = {'kind':'error','error':{'message':'fake failure','code':'EFAIL'}}
+else:
+    reason = {'kind':'completed'}
+if not fail:
+    if os.environ.get('FAKE_DSH_SECRET'):
+        (cwd / 'hello.txt').write_text('hello ' + 'sk-' + 'abcdefghijklmnop' + '\n')
+    else:
+        (cwd / 'hello.txt').write_text('hello from fake dsh\n')
+add('turn/end', {'turn': turn, 'reason': reason})
+path.write_text(''.join(json.dumps(r)+'\n' for r in [header]+events))
+if '--json' in args:
+    print(json.dumps({'type':'session','sessionId':sid,'cwd':str(cwd)}))
+    print(json.dumps({'type':'status','phase':'turn_end','turn':turn,'reason':reason}))
+    print(json.dumps({'type':'final','text':'done' if not fail else ''}))
+else:
+    print('done' if not fail else '', end='')
+raise SystemExit(0 if not fail and not os.environ.get('FAKE_DSH_UNKNOWN') else 1)

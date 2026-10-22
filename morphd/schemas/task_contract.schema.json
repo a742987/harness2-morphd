@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://morphd.local/schemas/task_contract.schema.json",
+  "title": "morphd task contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_contract",
+    "task_ref",
+    "instruction",
+    "workspace",
+    "criteria",
+    "user_turns",
+    "expected_deliverables",
+    "domain",
+    "source_runtime"
+  ],
+  "properties": {
+    "task_contract": {
+      "const": 1
+    },
+    "task_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "instruction": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dir",
+        "sha256"
+      ],
+      "properties": {
+        "dir": {
+          "const": "workspace"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks"
+      ],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        }
+      }
+    },
+    "user_turns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "corrective"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "corrective": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "expected_deliverables": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "source_runtime": {
+      "enum": [
+        "dsh",
+        "codex",
+        "claude-code",
+        "manual"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "safePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).*$"
+    },
+    "check": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path"
+          ],
+          "properties": {
+            "type": {
+              "const": "file_exists"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path"
+          ],
+          "properties": {
+            "type": {
+              "const": "file_not_exists"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "text"
+          ],
+          "properties": {
+            "type": {
+              "const": "file_contains"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            },
+            "case_sensitive": {
+              "type": "boolean"
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "pattern"
+          ],
+          "properties": {
+            "type": {
+              "const": "file_regex"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "glob",
+            "min_count"
+          ],
+          "properties": {
+            "type": {
+              "const": "files_glob"
+            },
+            "glob": {
+              "$ref": "#/$defs/safePath"
+            },
+            "min_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "type": {
+              "const": "file_sha256"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "path",
+            "pointer",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "const": "json_equals"
+            },
+            "path": {
+              "$ref": "#/$defs/safePath"
+            },
+            "pointer": {
+              "type": "string"
+            },
+            "value": {},
+            "hidden": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

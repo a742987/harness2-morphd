@@ -1,0 +1,269 @@
+"""Candidate-tree security checks and execution-boundary assertions."""
+
+from __future__ import annotations
+
+import ast
+import os
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from . import sanitize
+
+DANGEROUS_IMPORTS = {
+    "aiohttp",
+    "ctypes",
+    "ftplib",
+    "http",
+    "http.client",
+    "httpx",
+    "paramiko",
+    "pty",
+    "requests",
+    "socket",
+    "subprocess",
+    "telnetlib",
+    "urllib",
+    "urllib.request",
+    "websockets",
+}
+DANGEROUS_CALLS = {
+    "eval",
+    "exec",
+    "compile",
+    "__import__",
+    "os.system",
+    "os.popen",
+    "os.execv",
+    "os.execve",
+    "os.execl",
+    "os.execlp",
+    "os.spawnl",
+    "os.spawnv",
+    "os.remove",
+    "os.unlink",
+    "os.rmdir",
+    "shutil.rmtree",
+    "importlib.import_module",
+}
+NETWORK_CALL_PREFIXES = ("socket.", "requests.", "httpx.", "urllib.", "http.")
+RISK_TERMS = re.compile(
+    r"(?i)(danger-full-access|bypass[-_ ]?approvals|approval/policy|sandbox/mode|"
+    r"settings\.json|hooks\.json|cordis\.patch\.yml)"
+)
+
+
+class SecurityError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class ScanResult:
+    violations: list[str]
+    findings: list[sanitize.SecretFinding]
+
+    @property
+    def ok(self) -> bool:
+        return not self.violations and not self.findings
+
+
+def _call_name(node: ast.Call) -> str:
+    func = node.func
+    parts: list[str] = []
+    while isinstance(func, ast.Attribute):
+        parts.append(func.attr)
+        func = func.value
+    if isinstance(func, ast.Name):
+        parts.append(func.id)
+    return ".".join(reversed(parts))
+
+
+def scan_python(rel: str, source: str) -> list[str]:
+    """Reject the execution surfaces a candidate script must not need."""
+    try:
+        tree = ast.parse(source, filename=rel)
+    except SyntaxError as exc:
+        return [f"{rel} does not parse: {exc.msg} (line {exc.lineno})"]
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            child.parent = parent  # type: ignore[attr-defined]
+
+    def module_scope(node: ast.AST) -> bool:
+        current = getattr(node, "parent", None)
+        while current is not None:
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                return False
+            current = getattr(current, "parent", None)
+        return True
+
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in DANGEROUS_IMPORTS or alias.name.split(".")[0] in {
+                    "socket",
+                    "subprocess",
+                    "ctypes",
+                }:
+                    violations.append(f"{rel}:{node.lineno} imports dangerous module {alias.name!r}")
+        elif isinstance(node, ast.ImportFrom):
+            name = node.module or ""
+            if name in DANGEROUS_IMPORTS or name.split(".")[0] in {
+                "socket",
+                "subprocess",
+                "ctypes",
+            }:
+                violations.append(f"{rel}:{node.lineno} imports dangerous module {name!r}")
+            for alias in node.names:
+                if name in ("os", "shutil") and alias.name in {
+                    "system",
+                    "popen",
+                    "remove",
+                    "unlink",
+                    "rmdir",
+                    "rmtree",
+                } | {f"exec{tail}" for tail in ("v", "ve", "l", "le", "lp", "lpe")} | {
+                    f"spawn{tail}" for tail in ("l", "le", "v", "ve")
+                }:
+                    violations.append(
+                        f"{rel}:{node.lineno} imports dangerous function {name}.{alias.name}"
+                    )
+                if name == "importlib" and alias.name == "import_module":
+                    violations.append(f"{rel}:{node.lineno} imports dynamic import_module")
+                if alias.name in {"eval", "exec", "compile"}:
+                    violations.append(f"{rel}:{node.lineno} imports dynamic execution {alias.name}")
+        elif isinstance(node, ast.Call):
+            path_line = f"{rel}:{getattr(node, 'lineno', 0)}"
+            call = _call_name(node)
+            if call.rsplit(".", 1)[-1] in {"eval", "exec"}:
+                violations.append(f"{path_line} calls dynamic execution {call}()")
+            if call in DANGEROUS_CALLS or call.startswith(NETWORK_CALL_PREFIXES):
+                violations.append(f"{path_line} calls {call}() — network/process/dynamic execution is not allowed")
+            if call == "open" and len(node.args) >= 2 and module_scope(node):
+                mode = node.args[1]
+                if isinstance(mode, ast.Constant) and isinstance(mode.value, str) and any(
+                    c in mode.value for c in "wax+"
+                ):
+                    violations.append(
+                        f"{path_line} opens a file for writing at module scope; move side effects "
+                        "under `if __name__ == '__main__'`"
+                    )
+            if module_scope(node) and call.split(".")[0] in {"os", "shutil"} and call not in {
+                "os.path.join",
+                "os.path.exists",
+                "os.getenv",
+                "os.environ.get",
+                "os.makedirs",
+            }:
+                violations.append(
+                    f"{path_line} calls {call}() at module scope; module-level execution is not allowed"
+                )
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            name = _call_name(stmt.value)
+            if name not in {
+                "Path",
+                "PurePath",
+                "re.compile",
+                "str",
+                "int",
+                "float",
+                "bool",
+                "list",
+                "dict",
+                "tuple",
+                "set",
+                "frozenset",
+                "len",
+                "range",
+                "print",
+                "sorted",
+                "min",
+                "max",
+                "enumerate",
+                "zip",
+                "json.dumps",
+                "json.loads",
+            }:
+                violations.append(
+                    f"{rel}:{getattr(stmt, 'lineno', 0)} runs {name}() at import time; "
+                    "module-level execution is not allowed"
+                )
+    return sorted(set(violations))
+
+
+def scan_tree_contents(tree: dict[str, str]) -> ScanResult:
+    violations: list[str] = []
+    findings: list[sanitize.SecretFinding] = []
+    for rel, text in sorted(tree.items()):
+        if rel.endswith(".py"):
+            violations.extend(scan_python(rel, text))
+        findings.extend(sanitize.scan_text(text, path=rel))
+        if RISK_TERMS.search(text) and rel not in {"AGENTS.md", "CLAUDE.md"}:
+            match = RISK_TERMS.search(text)
+            violations.append(
+                f"{rel}: references a controlled permission/config surface "
+                f"({match.group(0)!r}); candidates may not change execution policy"
+            )
+    return ScanResult(violations=violations, findings=findings)
+
+
+def scan_workspace(path: Path) -> list[sanitize.SecretFinding]:
+    return sanitize.scan_paths([Path(path)])
+
+
+def require_isolation(*, enabled: bool) -> dict:
+    """Fail closed unless the caller is inside the container/egress boundary."""
+    if not enabled:
+        return {"required": False, "verified": False, "reason": "disabled-for-test"}
+    marker = (
+        Path("/.dockerenv").exists()
+        or Path("/run/.containerenv").exists()
+        or os.environ.get("MORPHD_CONTAINER_ISOLATED", "").lower() in {"1", "true", "yes"}
+    )
+    egress = os.environ.get("MORPHD_EGRESS_ENFORCED", "").lower() in {"1", "true", "yes"}
+    allowlist = [
+        item.strip()
+        for item in os.environ.get("MORPHD_EGRESS_ALLOWLIST", "").split(",")
+        if item.strip()
+    ]
+    if not marker:
+        raise SecurityError(
+            "morphd refuses to start real rollouts outside the isolated container. "
+            "Run through deploy/container (which sets MORPHD_CONTAINER_ISOLATED=1), or set "
+            "MORPHD_CONTAINER_REQUIRED=0 only in a disposable test environment."
+        )
+    if not egress or not allowlist:
+        raise SecurityError(
+            "egress enforcement is not declared. Set MORPHD_EGRESS_ENFORCED=1 and "
+            "MORPHD_EGRESS_ALLOWLIST to the model endpoints permitted by the container firewall."
+        )
+    return {
+        "required": True,
+        "verified": True,
+        "egress_enforced": True,
+        "egress_allowlist": sorted(allowlist),
+    }
+
+
+def assert_no_leaks(
+    terms: list[str],
+    instruction: str,
+    workspace: Path,
+    trajectory_text: str = "",
+    *,
+    leak_globs: tuple[str, ...] = (),
+) -> list[str]:
+    problems: list[str] = []
+    found = sanitize.scan_forbidden_terms(instruction, terms)
+    if found:
+        problems.append(f"instruction exposes hidden criteria terms: {found}")
+    for glob in leak_globs:
+        for path in Path(workspace).rglob(glob):
+            if path.is_file():
+                problems.append(f"workspace contains leak path {path.relative_to(workspace)}")
+    if trajectory_text:
+        found = sanitize.scan_forbidden_terms(trajectory_text, terms)
+        if found:
+            problems.append(f"trajectory exposes hidden criteria terms: {found}")
+    return problems
