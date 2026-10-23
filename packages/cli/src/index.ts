@@ -2,19 +2,21 @@
 /**
  * @harness2-morphd/cli — thin, auditable launcher.
  *
- * It deliberately has no postinstall scripts and never downloads a binary from an
- * arbitrary URL. The engine comes from an optional platform package, an explicit
- * MORPHD_ENGINE_BIN, or (development only) `python3 -m morphd`.
+ * Windows 10/11 x64 only. It deliberately has no postinstall scripts and never
+ * downloads a binary from an arbitrary URL. The engine comes from the win32-x64
+ * platform package, an explicit MORPHD_ENGINE_BIN, or (development only)
+ * `python -m morphd`.
  */
 import { spawn, spawnSync, type SpawnOptions } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, release } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
 
 const VERSION = "0.5.0";
 const MIN_NODE = 20;
+const PLATFORM_PACKAGE = "@harness2-morphd/win32-x64";
 const require = createRequire(import.meta.url);
 
 interface EngineCommand {
@@ -33,8 +35,21 @@ function assertNode(): void {
   }
 }
 
+function assertPlatform(): void {
+  if (process.platform !== "win32" || process.arch !== "x64") {
+    fail(
+      `harness2-morphd supports Windows 10/11 x64 only; this is ${process.platform}-${process.arch}.`,
+      "PLATFORM_UNSUPPORTED",
+    );
+  }
+  const major = Number(release().split(".")[0]);
+  if (!Number.isFinite(major) || major < 10) {
+    fail(`harness2-morphd requires Windows 10 or 11; this is Windows ${release()}.`, "PLATFORM_UNSUPPORTED");
+  }
+}
+
 function platformPackage(): string {
-  return `@harness2-morphd/${process.platform}-${process.arch}`;
+  return PLATFORM_PACKAGE;
 }
 
 function engineFromPlatformPackage(): EngineCommand | null {
@@ -57,20 +72,23 @@ function engineFromPlatformPackage(): EngineCommand | null {
 }
 
 function pythonEngine(): EngineCommand | null {
-  const candidates = [
-    process.env.MORPHD_PYTHON,
-    "python3.13",
-    "python3.12",
-    "python3",
-    "python",
-  ].filter(Boolean) as string[];
+  const explicit = process.env.MORPHD_PYTHON?.trim();
+  const candidates: { command: string; prefix: string[] }[] = [
+    ...(explicit ? [{ command: explicit, prefix: [] as string[] }] : []),
+    { command: "python", prefix: [] },
+    { command: "py", prefix: ["-3"] },
+  ];
   for (const candidate of candidates) {
-    const probe = spawnSync(candidate, ["-c", "import morphd"], {
+    const probe = spawnSync(candidate.command, [...candidate.prefix, "-c", "import morphd"], {
       stdio: "ignore",
       timeout: 5000,
     });
     if (probe.status === 0) {
-      return { command: candidate, prefix: ["-m", "morphd"], source: `${candidate} -m morphd` };
+      return {
+        command: candidate.command,
+        prefix: [...candidate.prefix, "-m", "morphd"],
+        source: [candidate.command, ...candidate.prefix, "-m morphd"].join(" "),
+      };
     }
   }
   return null;
@@ -89,15 +107,15 @@ function resolveEngine(): EngineCommand {
   const python = pythonEngine();
   if (python) return python;
   fail(
-    `No harness2-morphd engine found for ${process.platform}-${process.arch}. ` +
-      `Install the matching platform package (${platformPackage()}) or set MORPHD_ENGINE_BIN.`,
+    `No harness2-morphd engine found for Windows x64. ` +
+      `Install the ${PLATFORM_PACKAGE} platform package or set MORPHD_ENGINE_BIN.`,
     "ENGINE_MISSING",
   );
 }
 
 function expandedCommand(engine: EngineCommand, args: string[]): { file: string; argv: string[] } {
   const all = [...engine.prefix, ...args];
-  if (process.platform === "win32" && /\.(cmd|bat)$/iu.test(engine.command)) {
+  if (/\.(cmd|bat)$/iu.test(engine.command)) {
     // .cmd/.bat cannot be spawned directly without a shell. Keep argv entries separate;
     // cmd.exe treats a joined, quoted string as the literal command name.
     return {
@@ -180,7 +198,7 @@ function effectiveHome(home: string | null): string {
 }
 
 function help(): void {
-  process.stdout.write(`morphd ${VERSION}
+  process.stdout.write(`morphd ${VERSION} (Windows 10/11 x64)
 
 Usage:
   npx @harness2-morphd/cli@latest setup [--host dsh|claude-code|codex] [--project DIR]
@@ -192,7 +210,7 @@ Usage:
   npx @harness2-morphd/cli@latest host <run|event> ...
 
 Environment:
-  MORPHD_HOME          data directory (default ~/.morphd)
+  MORPHD_HOME          data directory (default %USERPROFILE%\\.morphd)
   MORPHD_ENGINE_BIN    explicit engine binary
   MORPHD_PYTHON        Python interpreter for development mode
 
@@ -244,7 +262,7 @@ function cmdDoctor(args: string[]): number {
 function cmdUpdate(args: string[]): number {
   assertNode();
   const yes = args.includes("--yes");
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npm = "npm.cmd";
   const view = spawnSync(npm, ["view", "@harness2-morphd/cli", "version"], {
     encoding: "utf8",
     timeout: 30000,
@@ -333,6 +351,17 @@ function cmdPassthrough(args: string[]): number {
 
 function main(): number {
   const { command, args } = parseArgs(process.argv.slice(2));
+  const runtimeCommands = new Set([
+    "setup",
+    "doctor",
+    "update",
+    "uninstall",
+    "serve",
+    "status",
+    "host",
+    "privacy",
+  ]);
+  if (runtimeCommands.has(command)) assertPlatform();
   switch (command) {
     case "setup":
       return cmdSetup(args);

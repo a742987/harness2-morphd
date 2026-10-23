@@ -25,8 +25,8 @@ def _candidate(adapter, tmp_path) -> Path:
     base = adapter.base_harness()
     candidate = tmp_path / "candidate-harness"
     shutil.copytree(base, candidate)
-    agents = (candidate / "AGENTS.md").read_text()
-    (candidate / "AGENTS.md").write_text(agents + "\nMORPHD_IMPROVED\n")
+    agents = (candidate / "AGENTS.md").read_text(encoding="utf-8")
+    (candidate / "AGENTS.md").write_text(agents + "\nMORPHD_IMPROVED\n", encoding="utf-8")
     return candidate
 
 
@@ -199,7 +199,7 @@ def test_promotion_and_rollback(env, add_task, tmp_path, monkeypatch):
     assert record["verification"]["dump_ok"] is True
     profile = target / "profiles" / "md-promoted"
     assert (profile / "cordis.patch.yml").is_file()
-    assert "MORPHD_IMPROVED" in (target / "AGENTS.md").read_text()
+    assert "MORPHD_IMPROVED" in (target / "AGENTS.md").read_text(encoding="utf-8")
     base_dir = env["settings"].home / "harnesses" / "dsh" / "base"
     assert (base_dir / "AGENTS.md").is_file()
     assert (env["settings"].promotions_root / "dsh" / "HEAD.json").is_file()

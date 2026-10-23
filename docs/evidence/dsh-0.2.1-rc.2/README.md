@@ -19,9 +19,10 @@ Pinned source: `deepseek-ai/deepseek-harness` tag `dsh-v0.2.1-rc.2`, commit `687
 
 ## Live checks (M0)
 
-```sh
+```powershell
 dsh --version
-DSH_HOME=/srv/... dsh --profile md-preflight --dump-config > dsh-dump.txt
+$env:DSH_HOME = "C:\dsh-home"
+dsh --profile md-preflight --dump-config > dsh-dump.txt
 dsh --profile <id> --json "echo probe" > dsh-probe.jsonl
 ```
 

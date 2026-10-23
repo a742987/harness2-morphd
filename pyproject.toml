@@ -5,15 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "harness2-morphd"
 version = "0.5.0"
-description = "harness2-morphd: local-first agent harness improvement for dsh, Codex and Claude Code"
+description = "harness2-morphd: local-first agent harness improvement for Windows 10/11 x64"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12,<3.14"
 classifiers = [
     "Programming Language :: Python :: 3.12",
-    "Operating System :: POSIX",
-    "Operating System :: Microsoft :: Windows",
-    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Environment :: Win32 (MS Windows)",
 ]
 dependencies = [
     "PyYAML>=6",

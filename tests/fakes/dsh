@@ -16,12 +16,15 @@ if '--session-id' in args:
 prompt = args[-1]
 home = Path(os.environ['DSH_HOME'])
 cwd = Path.cwd()
-proj = '--' + str(cwd).replace('/', '_') + '--'
+raw_proj = str(cwd)
+for ch in '<>:"/\\|?*':
+    raw_proj = raw_proj.replace(ch, '_')
+proj = '--' + raw_proj + '--'
 sdir = home / 'sessions' / proj
 files = sorted(sdir.rglob('session*.jsonl*')) if sdir.exists() else []
 if files:
     path = files[-1]
-    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     header = rows[0]; events = rows[1:]
     sid = header['id']
     maxseq = max([e.get('seq', -1) for e in events] + [-1])
@@ -60,7 +63,7 @@ add('step/end', {'turn': turn, 'step': 1})
 fail = ('FAIL_FIRST' in prompt and turn == 1)
 if os.environ.get('FAKE_DSH_REQUIRE_MARKER'):
     agents = cwd / 'AGENTS.md'
-    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(errors='replace'):
+    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(encoding='utf-8', errors='replace'):
         fail = True
 if os.environ.get('FAKE_DSH_UNKNOWN'):
     reason = {'kind': 'future-kind'}
@@ -70,11 +73,11 @@ else:
     reason = {'kind':'completed'}
 if not fail:
     if os.environ.get('FAKE_DSH_SECRET'):
-        (cwd / 'hello.txt').write_text('hello ' + 'sk-' + 'abcdefghijklmnop' + '\n')
+        (cwd / 'hello.txt').write_text('hello ' + 'sk-' + 'abcdefghijklmnop' + '\n', encoding="utf-8")
     else:
-        (cwd / 'hello.txt').write_text('hello from fake dsh\n')
+        (cwd / 'hello.txt').write_text('hello from fake dsh\n', encoding="utf-8")
 add('turn/end', {'turn': turn, 'reason': reason})
-path.write_text(''.join(json.dumps(r)+'\n' for r in [header]+events))
+path.write_text(''.join(json.dumps(r)+'\n' for r in [header]+events), encoding="utf-8")
 if '--json' in args:
     print(json.dumps({'type':'session','sessionId':sid,'cwd':str(cwd)}))
     print(json.dumps({'type':'status','phase':'turn_end','turn':turn,'reason':reason}))

@@ -1,7 +1,12 @@
 # PRD v0.5 traceability
 
 `PRD-v0.5.md` is the only product PRD. This file maps its requirements to implementation and
-evidence. Status legend:
+evidence.
+> **Platform scope (2026-10-23)**: Windows 10/11 x64 only. macOS/Linux requirements in the
+> historical PRD are out of scope. The delivered package set is `@harness2-morphd/cli`,
+> `@harness2-morphd/tray` and the single `@harness2-morphd/win32-x64` engine package.
+
+Status legend:
 
 - **done** — implemented in this repository and covered by automated tests or browser checks;
 - **partial** — implementation exists but one environment-specific acceptance item is
@@ -18,9 +23,9 @@ evidence. Status legend:
 | R3 | Lifecycle start/stop with host | partial | wrapper + hook integration, checkpoints and recovery; Electron shell. Native dsh plugin API unverified (beta). |
 | R4 | Local Web UI + BYOK + model choice | done | React/Vite UI, all settings pages, provider roles/fallbacks, test-before-save, local Ollama; tests + visual smoke. |
 | R5 | Humanisation, quiet defaults, caps, feedback | done | Attention manager, trust/appetite policy, pause/vacation/incognito, weekly cap, quiet hours, feedback down-ranking, inbox; tests. |
-| R6 | NPM + Electron dual package | partial | `packages/cli`, `packages/tray`, `consumer/electron`, platform manifests/build script. Signed artifacts/npm publish/SmartScreen are release-environment work. |
+| R6 | NPM + Electron dual package | partial | Windows-only `packages/cli`, `packages/tray`, `packages/platform/win32-x64`, `consumer/electron`, PowerShell build/release. Artifacts are unsigned; SmartScreen/signing evidence pending. |
 | R7 | Host discovery, adaptation, manual folder | done (fake) / partial (real) | `consumer/hosts.py` PATH/npm/common dirs, identity/version checks, backup/rollback/manual validation; tests with fake dsh. |
-| R8 | Runtime tray | partial | Electron tray controller, optional `@harness2-morphd/tray` + `morphd tray` helper, single instance, lifecycle watcher. GUI E2E on Windows/macOS/Linux pending. |
+| R8 | Runtime tray | partial | Electron tray controller, optional `@harness2-morphd/tray` + `morphd tray` helper, single instance, lifecycle watcher. Windows GUI E2E pending. |
 | R9 | NVIDIA Green / Mono visual system | done | design tokens, build-time lint, light/dark, mobile, 125%/150% DPI, XL/high-contrast screenshots and axe checks. |
 
 ## FR-C1–C18
@@ -40,10 +45,10 @@ evidence. Status legend:
 | C11 | Diagnostics/recovery | done | checks, redacted logs, safety mode, reset learning, checkpoint recovery. |
 | C12 | Enterprise strict mode | partial | CLI gates, P2/P3, container/egress config retained; container target validation n/a. |
 | C13 | Humanisation/personalisation | done | trust/appetite, quiet/focus, weekly cap, digest, feedback, incognito, project boundaries, newbie mode, accessibility settings. |
-| C14 | NPM setup | partial | launcher, commands, optional platform packages, no postinstall; publishing/signing pending. |
-| C15 | Electron `.exe` | partial | secure shell/tray/IPC/build config; signed Windows installer not produced in this environment. |
+| C14 | NPM setup | partial | launcher, commands, single win32-x64 optional package, no postinstall; signing pending. |
+| C15 | Electron `.exe` | partial | secure shell/tray/IPC/build config; unsigned Windows NSIS/portable artifacts produced; Authenticode/SmartScreen pending. |
 | C16 | Discovery/adaptation/manual | partial | identity checks, zero-write errors, rollback, multi-version display, path input + system picker via engine. Project-only read-only mode and an Electron-native dialog are not yet implemented. |
-| C17 | Runtime tray | partial | code and helper; OS matrix GUI acceptance pending. |
+| C17 | Runtime tray | partial | Windows code and helper; GUI acceptance pending. |
 | C18 | Visual constraints | done | three colors, ≤10px radii, no grey/gradient/transparency, hard shadows; build lint + 19 visual/a11y screenshots including 125/150% DPI. |
 
 ## Appendix C engine contract
@@ -66,10 +71,10 @@ evidence. Status legend:
 | C.4.4 jobs/trial/rollback | done | Triage, checkpoints, trial decisions; tests. |
 | C.4.5 installer/InstallRecord | done (fake) | Discovery/adapt/uninstall tests; signing release pending. |
 | C.4.6 tray/Electron IPC | partial | Whitelist preload/validated IPC; GUI E2E pending. |
-| C.5 build/release | partial | Local builds/tests; signed artifacts, SBOM/provenance release pipeline pending. |
-| C.6 Definition of Done | not met | Real host/CLI evidence, signed packages, npm publication, DPI/accessibility audits, legal review remain. |
+| C.5 build/release | partial | Windows PowerShell build/release, SHA256SUMS and integration tests; Authenticode/SBOM/provenance publication pending. |
+| C.6 Definition of Done | not met | Real host/CLI evidence, signed packages, DPI/accessibility audits and legal review remain. |
 | C.7 compatibility/migration | partial | Versions and data migrations; real upgrade batches n/a. |
-| C.8 legal/brand/compliance | partial | Privacy/terms/help docs added; legal review and publisher details pending. |
+| C.8 legal/brand/compliance | partial | Privacy/terms/help docs added; legal review, publisher details and Authenticode publisher identity pending. |
 
 ## Binding defaults
 

@@ -2,14 +2,25 @@
   "name": "harness2-morphd-workspace",
   "private": true,
   "version": "0.5.0",
-  "description": "Local-first agent harness improvement",
+  "description": "Local-first agent harness improvement for Windows 10/11 x64",
   "scripts": {
     "web:install": "npm --prefix consumer/web install",
     "web:build": "npm --prefix consumer/web run build",
     "web:test": "npm --prefix consumer/web test",
+    "cli:build": "npm --prefix packages/cli run build",
     "cli:test": "npm --prefix packages/cli test",
+    "tray:test": "npm --prefix packages/tray test",
+    "electron:install": "npm --prefix consumer/electron install",
     "electron:build": "npm --prefix consumer/electron run build",
     "electron:test": "npm --prefix consumer/electron test",
-    "test": "npm run web:test && npm run cli:test && npm run electron:test"
+    "electron:dist": "npm --prefix consumer/electron run dist",
+    "engine:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_engine.ps1",
+    "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_package.ps1",
+    "verify:vendor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_vendor.ps1",
+    "lint:python": ".venv-win\\Scripts\\ruff.exe check morphd tests",
+    "test:python": ".venv-win\\Scripts\\python.exe -X utf8 -m pytest -q",
+    "test": "npm run lint:python && npm run test:python && npm run web:test && npm run cli:test && npm run tray:test && npm run electron:test",
+    "verify": "npm run verify:vendor && npm run test",
+    "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_release.ps1"
   }
 }

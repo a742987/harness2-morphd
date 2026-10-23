@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -20,18 +21,24 @@ def env(tmp_path, monkeypatch):
     home = tmp_path / "home"
     tasks_root = tmp_path / "tasks"
     tasks_root.mkdir(parents=True)
-    price = yaml.safe_load((REPO / "morphd" / "pricing.yaml").read_text())
+    price = yaml.safe_load((REPO / "morphd" / "pricing.yaml").read_text(encoding="utf-8"))
     price["confirmed"] = True
     price_path = tmp_path / "pricing.yaml"
-    price_path.write_text(yaml.safe_dump(price, sort_keys=False))
+    price_path.write_text(yaml.safe_dump(price, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("MORPHD_HOME", str(home))
     monkeypatch.setenv("MORPHD_TASKS", str(tasks_root))
     monkeypatch.setenv("MORPHD_PRICING", str(price_path))
     monkeypatch.setenv("MORPHD_CONTAINER_REQUIRED", "0")
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    monkeypatch.setenv("PYTHONIOENCODING", "utf-8")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-" + "test-secret-value")
-    monkeypatch.setenv("MORPHD_DSH_BIN", str(FAKES / "dsh"))
-    monkeypatch.setenv("MORPHD_CODEX_BIN", str(FAKES / "codex"))
-    monkeypatch.setenv("MORPHD_CLAUDE_BIN", str(FAKES / "claude"))
+    fake_bins = tmp_path / "fake-bin"
+    fake_bins.mkdir()
+    for name in ("dsh", "codex", "claude"):
+        wrapper = fake_bins / f"{name}.cmd"
+        contents = f'@echo off\r\n"{sys.executable}" "{FAKES / name}" %*\r\n'
+        wrapper.write_bytes(contents.encode("utf-8"))
+        monkeypatch.setenv(f"MORPHD_{name.upper() if name != 'claude' else 'CLAUDE'}_BIN", str(wrapper))
     monkeypatch.setenv("MORPHD_DSH_DUMP_CHECK", "1")
     monkeypatch.setenv("MORPHD_CLAUDE_MODEL", "fake-model")
     monkeypatch.setenv("MORPHD_CODEX_MODEL", "fake-model")
@@ -54,7 +61,7 @@ def env(tmp_path, monkeypatch):
 def workspace(tmp_path):
     ws = tmp_path / "source-workspace"
     ws.mkdir()
-    (ws / "README.md").write_text("# Demo workspace\n\nProduce hello.txt.\n")
+    (ws / "README.md").write_text("# Demo workspace\n\nProduce hello.txt.\n", encoding="utf-8")
     return ws
 
 
@@ -111,7 +118,7 @@ def task_store(env) -> TaskStore:
 
 
 def read_json(path: Path) -> dict:
-    return json.loads(Path(path).read_text())
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def write_session(path: Path, *, sid: str, cwd: Path, events: list[dict], compressed: bool = True) -> None:

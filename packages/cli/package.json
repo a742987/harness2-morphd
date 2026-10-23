@@ -1,7 +1,7 @@
 {
   "name": "@harness2-morphd/cli",
   "version": "0.5.0",
-  "description": "harness2-morphd setup, doctor, update and uninstall launcher",
+  "description": "harness2-morphd setup, doctor, update and uninstall launcher for Windows 10/11 x64",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -27,14 +27,16 @@
     "typescript": "^5.6.3"
   },
   "optionalDependencies": {
-    "@harness2-morphd/linux-x64": "0.5.0",
-    "@harness2-morphd/linux-arm64": "0.5.0",
-    "@harness2-morphd/darwin-x64": "0.5.0",
-    "@harness2-morphd/darwin-arm64": "0.5.0",
     "@harness2-morphd/win32-x64": "0.5.0"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ]
 }

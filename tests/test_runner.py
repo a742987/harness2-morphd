@@ -58,13 +58,13 @@ def test_run_orchestration_writes_evidence(env, add_task, monkeypatch, capsys):
     record_path = next(
         (env["settings"].runs_root / "dsh" / "adapt" / "morphd-runs").glob("*.json")
     )
-    record = json.loads(record_path.read_text())
+    record = json.loads(record_path.read_text(encoding="utf-8"))
     assert record["status"] == "done"
     assert record["preflight"]["runtime"] == "dsh"
     assert record["budget"]["calls"] == 1
     ns = record["namespace"]
     summary_path = env["settings"].runs_root / "dsh" / "adapt" / ns / "summary.json"
-    summary = json.loads(summary_path.read_text())
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["status"] == "done"
     assert summary["morphd"]["runtime"] == "dsh"
 
@@ -100,7 +100,7 @@ def test_run_budget_interruption_is_reported(env, add_task, monkeypatch):
     record_path = next(
         (env["settings"].runs_root / "dsh" / "adapt" / "morphd-runs").glob("*.json")
     )
-    assert json.loads(record_path.read_text())["status"] == "interrupted"
+    assert json.loads(record_path.read_text(encoding="utf-8"))["status"] == "interrupted"
 
 
 def test_run_refuses_without_both_budget_gates(env, add_task):

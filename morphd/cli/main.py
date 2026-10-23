@@ -37,6 +37,7 @@ from .. import (
 )
 from ..config import RUNTIMES, Settings, parse_named_values, parse_runtime_list
 from ..consumer.errors import ConsumerError as _ConsumerError
+from ..platform_support import require_windows
 from ..runtimes.prompts import LEAK_GLOBS
 
 
@@ -1075,7 +1076,20 @@ def _common_paths(p: argparse.ArgumentParser) -> None:
     p.add_argument("--runs-root", default=None)
 
 
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_stdio()
+    require_windows()
     raw = list(sys.argv[1:] if argv is None else argv)
     if not raw:
         build_parser().print_help()

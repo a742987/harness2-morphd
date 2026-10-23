@@ -1,0 +1,47 @@
+name: windows-x64
+
+env:
+  PYTHONUTF8: "1"
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python dependencies
+        run: python -m pip install -e ".[dev,tray,build]"
+      - name: Python lint
+        run: python -m ruff check morphd tests
+      - name: Python tests
+        run: python -X utf8 -m pytest -q
+      - name: Vendor integrity
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_vendor.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Web install
+        run: npm --prefix consumer/web ci
+      - name: Web build
+        run: npm --prefix consumer/web run build
+      - name: Web tests
+        run: npm --prefix consumer/web test
+      - name: CLI install and test
+        run: |
+          npm --prefix packages/cli ci
+          npm --prefix packages/cli test
+      - name: Tray test
+        run: npm --prefix packages/tray test
+      - name: Electron install
+        run: npm --prefix consumer/electron ci --ignore-scripts
+      - name: Electron build and test
+        run: |
+          npm --prefix consumer/electron run build
+          npm --prefix consumer/electron test

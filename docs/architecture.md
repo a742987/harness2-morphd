@@ -4,7 +4,7 @@ harness2-morphd v0.5 has two layers:
 
 1. **Engine** (`morphd/`): the pinned Harness² recursion, runtime substrates/adapters, task
    contract, run evidence, metrics, budgets, security scanning, evaluation and promotion.
-2. **Consumer layer** (`morphd/consumer/`): settings, BYOK/Keychain, host discovery and
+2. **Consumer layer** (`morphd/consumer/`): settings, BYOK/Credential Manager, host discovery and
    adaptation, session ingestion, in-host job runner, candidate/trial management, local API,
    Web UI assets, tray helper and the process lifecycle.
 
@@ -23,7 +23,7 @@ Host process / wrapper
        ├─ attention manager: pause, vacation, incognito, focus, quiet hours, caps, feedback
        ├─ privacy: redaction, send preview, export, retention, deletion
        ├─ loopback HTTP API + static Web UI
-       └─ OS Keychain / encrypted vault
+       └─ Windows Credential Manager / encrypted vault
 
 Browser or Electron BrowserWindow ── same local UI ──> 127.0.0.1:<random port>
 Tray helper / Electron tray ── host lifecycle ──> disappears with the host
@@ -45,8 +45,8 @@ Tray helper / Electron tray ── host lifecycle ──> disappears with the ho
   hook posts to the running local server or spools the event for the next host start.
 - Codex uses the wrapper process exit as session end; analysis resumes from the persisted queue
   on the next host start.
-- There is no cron, systemd, launchd, Windows Task Scheduler entry, daemon, cloud queue,
-  service-worker sync, or auto-start.
+- There is no Windows Task Scheduler entry, daemon, cron, cloud queue, service-worker sync,
+  or auto-start.
 
 ## Host discovery and adaptation
 
@@ -75,7 +75,7 @@ the first snapshot, pinned for "restore original harness".
 ## Data layout
 
 ```
-~/.morphd/
+%USERPROFILE%\.morphd\
   config.json          # non-secret settings
   providers.json       # provider profiles; key_ref only
   state.json           # pause/vacation/incognito/focus/weekly/feedback
@@ -89,13 +89,13 @@ the first snapshot, pinned for "restore original harness".
   snapshots/<id>.json + snapshots/<id>/files/...
   logs/events.jsonl    # redacted, 100MB roll
   exports/
-  runtime/server.json  # mode 0600, random port + host token + UI URL
+  runtime/server.json  # user-private, random port + host token + UI URL
   install.json
   _budget/consumer.jsonl
 ```
 
-Atomic JSON writes, mode `0700` directories / `0600` records (where the OS supports it). Unknown
-fields are preserved. Keys never enter these files.
+Atomic JSON writes; the data directory inherits the Windows user-profile ACL. Unknown fields
+are preserved. Keys never enter these files.
 
 ## Local API
 
@@ -137,7 +137,7 @@ the CLI for enterprise use; the consumer UI does not depend on it.
 
 Codex execution uses native `workspace-write` sandboxing and `--ask-for-approval never`, never
 the bypass flags. dsh profiles use fixed `workspace-write + ask`; Claude uses `acceptEdits`,
-tool allow/deny, project settings and no bypass. Container/egress remains an opt-in strict mode.
+tool allow/deny, project settings and no bypass. Container/egress remains an opt-in strict mode for external enterprise container runtimes.
 
 ## Failure and recovery
 

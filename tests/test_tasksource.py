@@ -115,7 +115,7 @@ def test_read_raw_session(tmp_path):
 
 
 def test_import_sessions_creates_sanitized_task(tmp_path, env, workspace):
-    (workspace / ".env").write_text("DEEPSEEK_API_KEY=" + "sk-" + "abcdefghijklmnop" + "\n")
+    (workspace / ".env").write_text("DEEPSEEK_API_KEY=" + "sk-" + "abcdefghijklmnop" + "\n", encoding="utf-8")
     sessions = tmp_path / "sessions"
     session_path = sessions / "--project--" / "sid-1" / "session.v3.jsonl.zstd"
     write_session(session_path, sid="sid-1", cwd=workspace, events=_events(workspace))

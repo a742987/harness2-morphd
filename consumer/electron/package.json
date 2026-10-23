@@ -1,7 +1,7 @@
 {
   "name": "@harness2-morphd/desktop",
   "version": "0.5.0",
-  "description": "harness2-morphd Windows/macOS/Linux desktop shell",
+  "description": "harness2-morphd desktop shell for Windows 10/11 x64",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/main.js",
@@ -48,7 +48,8 @@
         "portable"
       ],
       "icon": "build/icon.ico",
-      "signAndEditExecutable": true
+      "signAndEditExecutable": true,
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -57,20 +58,7 @@
       "createDesktopShortcut": true,
       "deleteAppDataOnUninstall": false
     },
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "category": "public.app-category.developer-tools",
-      "icon": "build/icon.png"
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Development",
-      "icon": "build/icon.png"
-    },
     "publish": null
-  }
+  },
+  "author": "harness2-morphd"
 }

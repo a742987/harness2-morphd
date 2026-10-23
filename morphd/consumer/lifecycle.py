@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 
 from .. import store as engine_store
+from .. import winproc
 from .api import LocalServer
 from .errors import ConsumerError
 from .service import ConsumerService
@@ -144,12 +145,10 @@ def run_host(
 
     previous_int = signal.signal(signal.SIGINT, _on_signal)
     previous_term = signal.signal(signal.SIGTERM, _on_signal)
+    previous_break = signal.signal(signal.SIGBREAK, _on_signal) if hasattr(signal, "SIGBREAK") else None
     try:
         try:
-            command = [binary, *args]
-            if os.name == "nt" and binary.lower().endswith((".cmd", ".bat")):
-                command = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", *command]
-            proc = subprocess.Popen(command, env=env)
+            proc = subprocess.Popen(winproc.command_line(binary, args), env=env)
         except OSError as exc:
             raise ConsumerError(
                 "HOST_NOT_FOUND",
@@ -195,6 +194,8 @@ def run_host(
     finally:
         signal.signal(signal.SIGINT, previous_int)
         signal.signal(signal.SIGTERM, previous_term)
+        if previous_break is not None:
+            signal.signal(signal.SIGBREAK, previous_break)
         runtime.stop()
 
 
@@ -205,9 +206,6 @@ def _maybe_spawn_tray(service: ConsumerService, home: Path) -> subprocess.Popen 
             return None
         if os.environ.get("MORPHD_TRAY", "1") == "0":
             return None
-        if os.name != "nt" and sys.platform != "darwin":
-            if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-                return None
         import pystray  # noqa: F401
     except Exception:
         return None

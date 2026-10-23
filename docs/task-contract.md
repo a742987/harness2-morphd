@@ -93,5 +93,5 @@ task = TaskContract.new(
     user_turns=[UserTurn("...")],
     expected_deliverables=["out.txt"],
 )
-TaskStore("~/.morphd/tasks").add_task(task, staging)
+TaskStore(Path.home() / ".morphd" / "tasks").add_task(task, staging)
 ```

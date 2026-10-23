@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
 from .. import store as engine_store
+from ..platform_support import require_windows
 from . import API_VERSION, APP_VERSION, catalog
 from .attention import AttentionManager
 from .budget import ConsumerBudget
@@ -50,6 +50,7 @@ class ConsumerService:
 
     # --- lifecycle ------------------------------------------------------------
     def start(self) -> None:
+        require_windows()
         self.budget.release_stale()
         self._drain_spool()
         self.jobs.start()
@@ -653,10 +654,6 @@ class ConsumerService:
 def _tray_supported() -> bool:
     if os.environ.get("MORPHD_TRAY", "1") == "0":
         return False
-    if os.name == "nt" or sys.platform == "darwin":
-        return True
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        return False
     try:
         import PIL  # noqa: F401
         import pystray  # noqa: F401
@@ -690,34 +687,22 @@ def _latest_session_file(kind: str, record: dict) -> Path | None:
 
 
 def _pick_folder_native() -> str | None:
-    if os.name == "nt":
-        script = (
-            "Add-Type -AssemblyName System.Windows.Forms;"
-            "$d=New-Object System.Windows.Forms.FolderBrowserDialog;"
-            "if($d.ShowDialog() -eq 'OK'){Write-Output $d.SelectedPath}"
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$d=New-Object System.Windows.Forms.FolderBrowserDialog;"
+        "if($d.ShowDialog() -eq 'OK'){Write-Output $d.SelectedPath}"
+    )
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            check=False,
         )
-        try:
-            proc = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", script],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-            )
-            path = (proc.stdout or "").strip()
-            return path or None
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
-        for command in (
-            ["zenity", "--file-selection", "--directory"],
-            ["kdialog", "--getexistingdirectory", str(Path.home())],
-        ):
-            try:
-                proc = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
-                path = (proc.stdout or "").strip()
-                if proc.returncode == 0 and path:
-                    return path
-            except (OSError, subprocess.TimeoutExpired):
-                continue
-    return None
+        path = (proc.stdout or "").strip()
+        return path or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None

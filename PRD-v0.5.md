@@ -9,6 +9,8 @@
 **上游基线**：Harness² `1cfe254e8d25`；dsh `0.2.1-rc.2`；Codex `0.144.6`；Claude Code `2.1.302`
 **License**：Apache-2.0；上游 Harness² 保持原样，不修改、不 fork
 
+> **平台范围修订（2026-10-23）**：本产品与仓库仅支持 **Windows 10/11 x64**。本 PRD 中出现的 macOS/Linux、C1 桌面包、Linux 容器与多平台 CI 矩阵均为历史目标，已移出本仓库范围。当前产品名与包名为 `harness2-morphd` / `@harness2-morphd/*`；`morphd` 仅作为 Python 包、CLI 命令、环境变量前缀和引擎二进制等技术标识保留。
+
 > **实现状态声明**：本文描述的是目标产品，不代表仓库现有代码已经具备这些能力。当前仓库已验证现有引擎能力（假 CLI 端到端测试），消费级产品层仍需实现。
 >
 > **单文件交付声明**：本文件是完整交付依据。附录 C 给出引擎契约、消费层数据结构、宿主接口、构建/测试/发布与 Definition of Done；实现者不需要阅读旧 PRD 或外部设计文档。现有代码仅作为参考实现，若与本文件冲突，以本文件为准。
@@ -26,7 +28,7 @@
 | **R3** | 随 Harness 启动而启动，关闭而关闭 | FR-C1、§9.1、§9.4 |
 | **R4** | 提供 Web UI 供用户调节设置，支持选择递归模型，允许 BYOK | FR-C4、FR-C5、§8、§10 |
 | **R5** | 人性化：默认不打扰、可暂停/隐身/休假、可调信任等级与变更幅度、建议有频率上限与反馈闭环、文案易懂、可访问 | FR-C13、§4.7、§6.8–§6.11、§8.5–§8.7 |
-| **R6** | **双包分发**：NPM 一条命令（`npx @morphd/cli@latest setup`）+ Windows Electron `.exe`；两种包共用引擎与 Web UI | FR-C14、FR-C15、§5.4–§5.5、§15.4 |
+| **R6** | **双包分发**：NPM 一条命令（`npx @harness2-morphd/cli@latest setup`）+ Windows Electron `.exe`；两种包共用引擎与 Web UI | FR-C14、FR-C15、§5.4–§5.5、§15.4 |
 | **R7** | 自动发现本机 Harness 并适配；失败时允许手动指定安装/配置文件夹；不整盘扫描 | FR-C16、§5.6、§15.5 |
 | **R8** | **运行时托盘**：Electron 与桌面版 NPM 默认提供托盘；关闭窗口隐藏到托盘；托盘随宿主退出消失；无开机自启/独立后台；无桌面环境时降级 | FR-C17、§5.7、§15.6 |
 | **R9** | **视觉约束**：仅 NVIDIA 绿 `#76B900` + 纯白 `#FFFFFF` + 纯黑 `#000000`；无直角；圆角层级 4/6/8/10px，主圆角 8px，最大 10px；无灰、无渐变、无半透明、无第四色 | FR-C18、§8.8、§15.7 |
@@ -148,7 +150,7 @@ morphd 已有完整的“任务 → 提案 → 探针 → 合成 → 评测 → 
 
 ### 3.2 关键使用场景
 
-1. **首次安装**：Windows 用户双击 `morphd-setup.exe`，或用 `npx @morphd/cli@latest setup` 安装；安装器自动寻找本机 dsh / Claude Code / Codex，展示版本与路径，用户确认后适配；找不到或适配失败时，可手动选择 Harness 安装/配置文件夹。重启宿主后打开 Web UI，按向导接入模型、设置预算、启用自动学习。
+1. **首次安装**：Windows 用户双击 `harness2-morphd-setup.exe`，或用 `npx @harness2-morphd/cli@latest setup` 安装；安装器自动寻找本机 dsh / Claude Code / Codex，展示版本与路径，用户确认后适配；找不到或适配失败时，可手动选择 Harness 安装/配置文件夹。重启宿主后打开 Web UI，按向导接入模型、设置预算、启用自动学习。
 2. **日常会话**：用户正常完成任务；会话结束后 morphd 静默入队；有改进价值时在界面显示一张“本次可改进”卡片。
 3. **失败会话**：任务失败、用户多次纠正、工具反复报错；morphd 自动生成候选 harness，并给出“下次会更好”的建议。
 4. **费用担忧**：用户在预算页看到本月/本次/单次上限和已花费金额；超限直接停止，不会“先花后通知”。
@@ -300,30 +302,30 @@ UI 壳：
 
 ```sh
 # 推荐：不全局安装，一条命令完成安装 + 宿主检测 + 打开 UI
-npx @morphd/cli@latest setup
+npx @harness2-morphd/cli@latest setup
 
 # 指定宿主
-npx @morphd/cli@latest setup --host dsh
-npx @morphd/cli@latest setup --host claude-code
-npx @morphd/cli@latest setup --host codex
+npx @harness2-morphd/cli@latest setup --host dsh
+npx @harness2-morphd/cli@latest setup --host claude-code
+npx @harness2-morphd/cli@latest setup --host codex
 
 # 可选：全局安装后使用
-npm install -g @morphd/cli
+npm install -g @harness2-morphd/cli
 morphd setup
 
 # 诊断 / 更新 / 卸载
-npx @morphd/cli@latest doctor
-npx @morphd/cli@latest update
-npx @morphd/cli@latest uninstall
+npx @harness2-morphd/cli@latest doctor
+npx @harness2-morphd/cli@latest update
+npx @harness2-morphd/cli@latest uninstall
 ```
 
-> `@morphd/cli` 为提议包名，正式发布前需完成 npm registry 注册与组织命名确认。安装命令以最终包名为准。
+> `@harness2-morphd/cli` 为提议包名，正式发布前需完成 npm registry 注册与组织命名确认。安装命令以最终包名为准。
 
 #### 5.4.2 `setup` 做什么
 
 1. 检查 Node 版本（安装器要求 `>=20`；各宿主自己的版本要求单独校验）；
 2. 检测已安装的宿主及版本（dsh / Claude Code / Codex）；
-3. 选择匹配当前 OS/CPU 的平台二进制；校验完整性/签名；
+3. 选择 `win32-x64` 平台二进制；校验完整性/签名；
 4. 备份并注册宿主插件/hook/包装器；不修改宿主权限与用户数据；
 5. 启动本地 UI（仅 loopback）并输出/打开一次性访问地址；
 6. 进入三步向导（模型、预算、隐私）；
@@ -335,14 +337,13 @@ npx @morphd/cli@latest uninstall
 
 | 包 | 作用 |
 |---|---|
-| `@morphd/cli` | Node 启动器 + `setup` / `doctor` / `update` / `uninstall`；不含用户数据 |
-| `@morphd/<os>-<arch>` | 预编译引擎二进制与 UI 资源（如 `darwin-arm64`、`linux-x64`、`win32-x64`） |
-| `@morphd/ui`（可选） | 本地 Web UI 静态资源；也可内嵌在平台包中 |
+| `@harness2-morphd/cli` | Node 启动器 + `setup` / `doctor` / `update` / `uninstall`；不含用户数据 |
+| `@harness2-morphd/win32-x64` | 预编译 Windows x64 引擎二进制、内嵌 Web UI 与 `SHA256SUMS` |
 
 - 使用 npm `optionalDependencies` 选择平台包，避免 `postinstall` 从任意 URL 下载可执行文件；
 - 用户不需要安装 Python、编译器或容器；
-- 平台包需签名/校验和；npm 包启用 provenance；
-- 无 Node 的用户提供签名双击安装包作为替代路径，但 NPM 是主推荐路径。
+- 平台包需校验和；正式发布应补签名；npm 包启用 provenance；
+- 无 Node 的用户提供双击安装包作为替代路径（当前发布未签名，属已知限制），但 NPM 是主推荐路径。
 
 #### 5.4.4 安装安全
 
@@ -377,10 +378,8 @@ Electron 是**桌面壳 + 安装器 + 宿主发现器**，不是第二套引擎�
 
 | 形态 | 目标平台 | 说明 |
 |---|---|---|
-| `morphd-setup.exe`（NSIS） | Windows x64 | 每用户安装，不要求管理员；安装器 + 桌面壳 + 引擎二进制 + UI |
-| `morphd-portable.exe` | Windows x64 | 免安装便携版；数据默认写到用户目录，可指定 |
-| `.dmg` / `.app` | macOS | C1 起提供，复用同一 Electron 壳 |
-| `.AppImage` / `.deb` | Linux | C1 起提供，复用同一 Electron 壳 |
+| `harness2-morphd-setup.exe`（NSIS） | Windows 10/11 x64 | 每用户安装，不要求管理员；安装器 + 桌面壳 + 引擎二进制 + UI |
+| `harness2-morphd-portable.exe` | Windows 10/11 x64 | 免安装便携版；数据默认写到用户目录，可指定 |
 
 - Windows `.exe` 是 C0 的必交付项；
 - 代码签名使用 Authenticode；发布前完成 SmartScreen 信誉积累；
@@ -445,7 +444,7 @@ Electron 是**桌面壳 + 安装器 + 宿主发现器**，不是第二套引擎�
 
 只扫描以下来源，**默认不递归扫描整个磁盘**：
 
-1. `PATH` 中的 `dsh` / `claude` / `codex` 可执行文件（Windows 用 `where`，Unix 用 `which`）；
+1. `PATH` 中的 `dsh` / `claude` / `codex` 可执行文件（Windows 使用 `where`/`PATHEXT`）；
 2. npm / pnpm / yarn 全局安装目录（从 `npm config get prefix`、`pnpm root -g` 等读取）；
 3. 常见安装目录（如 `%LOCALAPPDATA%`、`%ProgramFiles%`、`/usr/local`、`/opt`、`~/.local`）；
 4. 常见配置目录：
@@ -525,7 +524,7 @@ UI 以卡片列出：
 #### 5.7.1 托盘的边界
 
 - **Electron 路径必须有托盘**：宿主启动/附着成功后出现；宿主退出/崩溃后消失；
-- **NPM 路径在桌面环境默认配置轻量 `@morphd/tray` helper**：仍以浏览器 Web UI 为主，托盘只提供状态与快捷操作；helper 随宿主启动/退出，可关闭；服务器/无桌面环境自动降级为仅 Web UI；
+- **NPM 路径在桌面环境默认配置轻量 `@harness2-morphd/tray` helper**：仍以浏览器 Web UI 为主，托盘只提供状态与快捷操作；helper 随宿主启动/退出，可关闭；服务器/无桌面环境自动降级为仅 Web UI；
 - 托盘是**运行时 UI**，不是常驻后台：宿主不在时不得有托盘、进程或计划任务；
 - 无开机自启、无系统服务、无独立后台队列；
 - 托盘出现/消失必须有明确的宿主生命周期依据，不能靠轮询伪造；使用本地 IPC/生命周期信号驱动；
@@ -567,9 +566,7 @@ UI 以卡片列出：
 
 | 平台 | 托盘实现 | 要求 |
 |---|---|---|
-| Windows | 系统托盘（NotifyIcon） | 高 DPI、深浅色、键盘可操作 |
-| macOS | 菜单栏图标 | 使用 template icon；尊重菜单栏空间 |
-| Linux | AppIndicator / StatusNotifier | 桌面环境不支持时降级为“仅窗口”，并明确提示，不伪造托盘 |
+| Windows 10/11 x64 | 系统托盘（NotifyIcon） | 高 DPI、深浅色、键盘可操作 |
 
 #### 5.7.5 安全与隐私
 
@@ -587,8 +584,8 @@ UI 以卡片列出：
 
 **两种入口，同一套引导与数据**：
 
-- **Windows 普通用户**：下载 `morphd-setup.exe`，双击安装；不需要 Node、Python 或终端。
-- **开发者/已装 Node**：`npx @morphd/cli@latest setup`；不全局安装，或可选 `npm i -g @morphd/cli`。
+- **Windows 普通用户**：下载 `harness2-morphd-setup.exe`，双击安装；不需要 Node、Python 或终端。
+- **开发者/已装 Node**：`npx @harness2-morphd/cli@latest setup`；不全局安装，或可选 `npm i -g @harness2-morphd/cli`。
 
 流程：
 
@@ -684,7 +681,7 @@ UI 以卡片列出：
 
 ### 6.7 卸载
 
-- NPM 路径：`npx @morphd/cli@latest uninstall`；
+- NPM 路径：`npx @harness2-morphd/cli@latest uninstall`；
 - Electron 路径：Windows“应用和功能”或安装器卸载；
 - 卸载插件/桌面壳后，宿主恢复原状，托盘图标与启动项一并移除；
 - 用户可选择保留或删除本地数据；
@@ -867,7 +864,7 @@ UI 以卡片列出：
 5. 普通用户优先看到“省钱/均衡/效果优先/本地”预设；切换预设时显示最终模型、服务商与预计成本；高级用户可逐角色自定义。
 6. 每个服务商页面提供“如何获取 Key”的官方入口与格式提示；展示数据处理/保留/训练政策摘要，首次启用需用户确认。
 7. Key 存储：
-   - 优先 OS Keychain（macOS Keychain / Windows Credential Manager / Linux Secret Service）；
+   - 优先 Windows Credential Manager；不可用时使用加密保险库；
    - 不可用时使用本地加密保险库，并要求用户设置解锁口令；
    - 禁止明文写入配置文件、日志、localStorage、IndexedDB、导出包；
    - UI 保存后不再回显完整 Key，只显示尾号。
@@ -1060,10 +1057,10 @@ UI 以卡片列出：
 
 **要求**
 
-1. **主命令**：`npx @morphd/cli@latest setup` 一条命令完成安装、宿主检测、插件注册与引导 UI 启动；支持 `--host dsh|claude-code|codex`。
-2. **可选全局**：`npm install -g @morphd/cli && morphd setup`；不强制全局安装。
+1. **主命令**：`npx @harness2-morphd/cli@latest setup` 一条命令完成安装、宿主检测、插件注册与引导 UI 启动；支持 `--host dsh|claude-code|codex`。
+2. **可选全局**：`npm install -g @harness2-morphd/cli && morphd setup`；不强制全局安装。
 3. **零 Python/编译依赖**：安装器通过平台二进制包提供引擎；用户不需要安装 Python、编译器、Docker。
-4. **平台覆盖**：至少 macOS arm64/x64、Linux x64/arm64、Windows x64；平台包使用 npm `optionalDependencies`，缺失时给出明确支持列表。
+4. **平台覆盖**：仅 Windows 10/11 x64；平台包使用 npm `optionalDependencies`，缺失时给出明确支持列表。
 5. **宿主检测**：检测宿主是否存在、版本是否在支持矩阵内；不支持的宿主不得写入任何配置。
 6. **可逆注册**：修改宿主插件/hook/包装器前备份；失败自动回滚；`uninstall` 精确恢复。
 7. **临时 UI**：安装器只启动临时本地 UI 完成引导；向导结束即退出，不留端口/进程/计划任务。
@@ -1098,7 +1095,7 @@ UI 以卡片列出：
 
 **要求**
 
-1. **交付物**：Windows x64 的 `morphd-setup.exe`（每用户 NSIS 安装器）与 `morphd-portable.exe`；macOS `.dmg`、Linux AppImage 在 C1/C2 提供。
+1. **交付物**：Windows 10/11 x64 的 `harness2-morphd-setup.exe`（每用户 NSIS 安装器）与 `harness2-morphd-portable.exe`。当前发布为未签名版本，Authenticode 签名待补。
 2. **同一套引擎与 UI**：Electron 只做桌面壳；引擎、配置、数据目录、Web UI 与 NPM 路径完全一致，不允许功能漂移。
 3. **生命周期与托盘**：
    - 随宿主启动/附着；宿主退出时插件、托盘与桌面壳退出；
@@ -1179,11 +1176,11 @@ UI 以卡片列出：
 3. **窗口行为**：关闭主窗口默认隐藏到托盘；托盘可重新打开；不杀死宿主；可在设置中改为“关闭即退出 UI”，但不能“退出宿主”。
 4. **托盘菜单**：打开 morphd、状态（学习中/已暂停/预算用完/需要处理/未连接）、本月花费、暂停（1 小时/1 天/1 周）、本次/下个会话隐身、打开宿主、设置、退出桌面壳（或关闭浏览器标签）、停止学习并退出（二次确认）。
 5. **状态与反打扰**：默认不显示新建议数字徽标；可选轻微圆点；禁止闪烁/红点堆积/倒计时；Tooltip 不含会话内容/文件名/Key。
-6. **平台**：Windows 系统托盘、macOS 菜单栏、Linux AppIndicator/StatusNotifier；不支持的桌面环境降级为仅窗口并明确提示。
-7. **NPM 路径**：桌面环境默认提供 `@morphd/tray` helper，行为与 Electron 托盘一致且随宿主退出；仍以浏览器 Web UI 为主；用户可关闭，服务器/无桌面环境自动降级。
+6. **平台**：Windows 10/11 x64 系统托盘（NotifyIcon）；不支持的桌面环境降级为仅窗口并明确提示。
+7. **NPM 路径**：桌面环境默认提供 `@harness2-morphd/tray` helper，行为与 Electron 托盘一致且随宿主退出；仍以浏览器 Web UI 为主；用户可关闭，服务器/无桌面环境自动降级。
 8. **安全**：托盘不缓存 Key/会话原文/diff；危险操作二次确认；不提供批准高危命令/跳过审批；不向网络发送状态。
 9. **无残留**：宿主退出后不得有托盘、托盘 helper、Electron 主进程或后台重试。
-10. **可访问性**：托盘菜单键盘可操作、屏幕阅读器可读、图标支持高对比度/深色模式；macOS 使用 template icon。
+10. **可访问性**：托盘菜单键盘可操作、屏幕阅读器可读、图标支持高对比度/深色模式。
 
 **验收**
 
@@ -1194,7 +1191,7 @@ UI 以卡片列出：
 - [ ] 仅配置模式无托盘；关闭窗口即退出；
 - [ ] 托盘“停止学习并退出”二次确认后停止插件/引擎，宿主继续运行；
 - [ ] 默认无数字徽标；无闪烁/红点堆积；Tooltip 不含敏感信息；
-- [ ] Windows/macOS/Linux 各至少一个桌面环境通过；不支持的 Linux 环境降级提示；
+- [ ] Windows 10/11 x64 至少一个桌面环境通过；不支持时降级提示；
 - [ ] 桌面版 NPM 默认 tray helper 可用，且宿主退出后消失；关闭 helper 后无托盘；
 - [ ] 托盘菜单可键盘操作，屏幕阅读器可读出菜单项。
 
@@ -2132,8 +2129,8 @@ queued → triaging → noop
 |---|---|
 | 性能 | 会话结束入队 p95 < 100ms；不阻塞宿主主路径；UI 首屏 < 1s；空闲 CPU ≈ 0；分析任务 CPU/内存有上限 |
 | 可靠性 | 崩溃/断电后不丢任务；幂等；不重复计费；恢复后状态一致 |
-| 兼容 | dsh 全功能；Claude/Codex 按能力标记 beta；Windows `.exe` C0，macOS/Linux 桌面包 C1；宿主版本升级前跑兼容测试 |
-| 安装 | **双包**：NPM 一条命令（`npx @morphd/cli@latest setup`）+ Windows Electron `.exe`；平台二进制；自动发现/适配宿主；失败可手动指定文件夹；桌面环境默认托盘 helper；无需 Python/编译；卸载可逆 |
+| 兼容 | dsh 全功能；Claude/Codex 按能力标记 beta；Windows 10/11 x64 `.exe`；宿主版本升级前跑兼容测试 |
+| 安装 | **双包**：NPM 一条命令（`npx @harness2-morphd/cli@latest setup`）+ Windows Electron `.exe`；单一 win32-x64 平台二进制；自动发现/适配宿主；失败可手动指定文件夹；Windows 桌面默认托盘 helper；无需 Python/编译；卸载可逆 |
 | Electron | 每用户安装、无管理员；Authenticode 签名；contextIsolation/sandbox/CSP；运行时托盘随宿主出现/消失；无自启；关闭即退出；空闲 CPU ≈ 0 |
 | 宿主适配 | 自动发现 PATH/npm 全局/常见目录；不整盘扫描；版本矩阵；失败零写入；手动文件夹兜底 |
 | 离线 | 无网络时可打开 UI、查看历史、修改设置；不可调用模型；不后台重试 |
@@ -2152,7 +2149,7 @@ queued → triaging → noop
 | 阶段 | 周期 | 交付 | 退出条件 |
 |---|---|---|---|
 | **C0 可用原型** | 10 周 | NPM 安装器 + Windows Electron `.exe`；平台二进制；宿主自动发现/适配/手动文件夹；运行时托盘（关闭到托盘/多宿主聚合）；dsh 宿主插件；随宿主启停；会话结束自动触发；无守护进程；Web UI 引导/首页/模型/BYOK/预算/隐私；建议模式；快照/撤销；Keychain；专注/静默/每周上限；顾问+保守默认；隐身会话；项目级开关；三色/无直角/4–10px 视觉系统 | 9 项产品要求全部通过；NPM 与 `.exe` 均可安装；自动发现/手动指定通过；托盘随宿主出现/消失；视觉规范验收通过；普通用户 3 分钟完成配置；宿主退出零残留 |
-| **C1 闭环** | 6 周 | 自动应用试用/自动回滚；历史/diff；Claude Code companion；Codex companion；通知；中英文；反馈闭环；自适应降噪；休假/摘要；macOS/Linux Electron 包 | 建议应用/撤销全流程；三宿主至少一个全功能、另两个 beta；预算硬停；负反馈后降频 |
+| **C1 闭环** | 6 周 | 自动应用试用/自动回滚；历史/diff；Claude Code companion；Codex companion；通知；中英文；反馈闭环；自适应降噪；休假/摘要；Windows 托盘与高 DPI 完善 | 建议应用/撤销全流程；三宿主至少一个全功能、另两个 beta；预算硬停；负反馈后降频 |
 | **C2 Beta** | 6 周 | 崩溃恢复；诊断页；可访问性；NPM 正式发布 + 签名安装包；Electron 签名/更新；性能优化；隐私评审；人性化文案全量审查 | 4 周 beta 无 P0；撤销 ≤1 分钟；崩溃不丢任务；专注/静默期 0 打扰；安装成功率 ≥95% |
 | **C3 GA** | 4 周 | 正式版；插件市场上架；企业严格模式；迁移工具；NPM provenance 与 Electron Authenticode 发布 | 指标达标；安全评审通过；支持文档齐全；无障碍与隐私评审通过 |
 
@@ -2213,10 +2210,10 @@ queued → triaging → noop
 
 ### 15.4 双包与分发验收
 
-- [ ] macOS arm64/x64、Linux x64/arm64、Windows x64 至少各有一台机器通过 NPM 安装；
+- [ ] Windows 10/11 x64 干净机器通过 NPM 安装；
 - [ ] Windows 干净机器（无 Node/Python/管理员权限）双击 `.exe` 安装成功；
 - [ ] 机器仅有 Node >=20，无 Python、无编译器，安装成功；
-- [ ] `npx @morphd/cli@latest setup` 不留下全局包；`npm i -g` 路径可正常升级/卸载；
+- [ ] `npx @harness2-morphd/cli@latest setup` 不留下全局包；`npm i -g` 路径可正常升级/卸载；
 - [ ] 自动检测宿主；不支持的宿主/平台给出明确错误且零写入；
 - [ ] 重复 `setup` 幂等；升级不覆盖用户设置；
 - [ ] 安装中断/失败自动回滚宿主配置，无半安装状态；
@@ -2253,7 +2250,7 @@ queued → triaging → noop
 - [ ] 托盘菜单包含打开、状态、花费、暂停、隐身、设置、退出桌面壳、停止学习并退出；
 - [ ] “停止学习并退出”二次确认后停止插件/引擎，宿主继续运行；
 - [ ] 默认无数字徽标/闪烁/红点堆积；Tooltip 不含会话内容、文件名、Key；
-- [ ] Windows/macOS/Linux 至少各一个桌面环境通过；Linux 不支持时降级提示；
+- [ ] Windows 10/11 x64 至少一个桌面环境通过；无桌面会话时降级提示；
 - [ ] 桌面版 NPM 默认 tray helper 可用且随宿主退出；关闭后无托盘；无桌面环境自动降级；
 - [ ] 托盘菜单键盘可操作、屏幕阅读器可读、高对比度/深色模式可用。
 
@@ -2297,7 +2294,7 @@ queued → triaging → noop
 | Electron 包体积/内存/启动慢 | 用户不愿用 | 只做壳；引擎/UI 共用；资源上限；发布说明标注体积；空闲 CPU ≈0 |
 | 托盘变常驻/开机自启 | 违反不常驻承诺 | 托盘绑定宿主生命周期；宿主退出即销毁；无自启；验收孤儿托盘=0 |
 | 多宿主多托盘/状态混乱 | 打扰、误操作 | 单实例聚合；按宿主分组；最后宿主退出才消失 |
-| Linux 托盘兼容差 | 功能缺失/用户困惑 | AppIndicator/StatusNotifier；不支持时明确降级为仅窗口 |
+| Windows 托盘兼容差 | 功能缺失/用户困惑 | NotifyIcon 高 DPI/深色模式验证；不支持时明确降级为仅窗口 |
 | 关闭窗口隐藏到托盘造成“没关掉”误解 | 用户困惑 | 首次提示；设置可改“关闭即退出 UI”；托盘菜单清晰 |
 | 托盘徽标/通知造成焦虑 | 违反人性化 | 默认无数字徽标；无闪烁/红点堆积；可完全关闭 |
 | 三色限制导致状态/图表难区分 | 可读性/可访问性下降 | 状态加文字/图标；图表用线型/图案；禁止只靠颜色 |
@@ -2328,7 +2325,7 @@ queued → triaging → noop
 |---|---|---|
 | Q1 | 自动应用是否应默认开启？ | **否**；默认建议模式，自动应用需显式开启 |
 | Q2 | 三个宿主的会话结束事件如何统一？ | 每个宿主独立定义；dsh 插件、Claude `SessionEnd`、Codex 包装器；不可用则 beta |
-| Q3 | 消费级是否支持 Windows？ | C0 交付 Windows `.exe` + NPM；macOS `.app`/Linux AppImage 在 C1；以宿主可用性为准 |
+| Q3 | 消费级是否支持 Windows？ | **是**；仅 Windows 10/11 x64，交付 `.exe` + NPM |
 | Q4 | 内置价格目录由谁维护？ | 产品团队维护参考价；用户可覆盖；标注“以账单为准” |
 | Q5 | 是否默认支持本地 Ollama？ | **是**；作为无云端 Key 的可用路径 |
 | Q6 | 自动应用试用期多长？ | 3 次会话；可按用户调整 1–10 |
@@ -2343,22 +2340,22 @@ queued → triaging → noop
 | Q15 | 负反馈后降频阈值？ | **3 次连续忽略或 2 次“没用”**；降频并询问原因 |
 | Q16 | 信任等级是否允许“自动驾驶”进入消费级？ | 默认不提供；需二次确认、预算锁与 30 天撤销窗口；企业模式可强制开启审计 |
 | Q17 | 项目自动识别失败的兜底？ | 以宿主 workspace 根为准；无法识别时按“当前项目”单例处理，并允许手动命名/切换 |
-| Q18 | NPM 包名与 scope 是否可用？ | 主包 `@morphd/cli`，平台包 `@morphd/<os>-<arch>`；发布前完成 registry 注册与商标/组织确认 |
+| Q18 | NPM 包名与 scope 是否可用？ | 主包 `@harness2-morphd/cli`，平台包 `@harness2-morphd/win32-x64`；发布前完成 registry 注册与商标/组织确认 |
 | Q19 | 安装器是否要求 Node？ | 安装器要求 Node >=20；引擎为平台二进制；无 Node 用户使用签名双击安装包 |
 | Q20 | 主推 `npx` 还是全局安装？ | 主推 `npx`（无残留、易升级）；全局安装作为进阶选项 |
 | Q21 | 是否自动更新？ | 不静默更新；提示版本与变更，用户确认后更新；安全更新可强提示但不强制 |
-| Q22 | 平台二进制由谁构建/签名？ | CI 构建 + 签名 + 校验和；发布流程需可复现构建与 npm provenance |
+| Q22 | 平台二进制由谁构建/签名？ | Windows CI 构建 + 校验和；签名发布流程需可复现构建与 npm provenance |
 | Q23 | Electron 与 NPM 是否功能完全一致？ | **是**；同一引擎/UI/配置/数据目录；只允许壳层差异（原生文件夹选择、签名方式） |
-| Q24 | `.exe` 首发只支持 Windows？ | **是**；C0 Windows x64；macOS `.dmg`/Linux AppImage 在 C1 |
+| Q24 | `.exe` 首发只支持 Windows？ | **是**；仅 Windows 10/11 x64；不再规划 macOS `.dmg`/Linux AppImage |
 | Q25 | 发现宿主后是否自动适配？ | 默认“发现后一键确认”；用户可开启“可信路径自动适配”；不可向未知目录写入 |
 | Q26 | 手动指定文件夹包括哪些？ | Harness 安装目录/可执行文件、配置目录、可选项目目录；只选项目目录不承诺自动触发 |
 | Q27 | Electron 更新机制？ | 使用签名自动更新包；提示后更新；失败回滚；不使用未签名增量更新 |
 | Q28 | 自动发现是否扫描全盘？ | **否**；只扫 PATH、npm 全局、常见安装/配置目录与注册表；可关闭 |
-| Q29 | NPM 路径是否强制托盘？ | 桌面环境默认启用 `@morphd/tray` helper；用户可关闭；服务器/无桌面自动降级；Web UI 始终为主 |
+| Q29 | NPM 路径是否强制托盘？ | Windows 桌面环境默认启用 `@harness2-morphd/tray` helper；用户可关闭；无桌面自动降级；Web UI 始终为主 |
 | Q30 | 关闭窗口默认行为？ | **隐藏到托盘**；首次提示；设置可改“关闭即退出 UI” |
 | Q31 | 托盘“退出”语义？ | 区分“退出界面”和“停止学习并退出”；不提供“退出宿主”；后者二次确认 |
 | Q32 | 多宿主如何聚合托盘？ | 单实例、一个托盘、按宿主分组；最后宿主退出才消失 |
-| Q33 | Linux 无托盘环境怎么办？ | 降级为仅窗口 + 明确提示，不伪造托盘；不作为阻断安装 |
+| Q33 | Linux 无托盘环境怎么办？ | 不适用；产品仅支持 Windows 10/11 x64 |
 | Q34 | 绿色 token 是否固定 `#76B900`？ | **锁定**；发布前复采样 nvidia.cn；官网灰色不纳入；不使用 NVIDIA Logo |
 | Q35 | 用户内容/第三方 Logo 是否豁免三色？ | **豁免内容本身**；容器/边框/背景/交互仍须三色+圆角；不使用第三方内容作为主题色 |
 
@@ -2401,7 +2398,7 @@ queued → triaging → noop
 12. **Project & Incognito Manager**：项目识别、项目级开关、排除路径、隐身会话；
 13. **Trust & Scope Policy**：信任等级、变更幅度、永久禁止面、自动应用条件；
 14. **Accessibility & i18n**：键盘、屏幕阅读器、字号、对比度、减少动画、中英双语；
-15. **NPM Launcher & Platform Packages**：`npx @morphd/cli`、平台二进制 optionalDependencies、签名/校验、`setup/doctor/update/uninstall`；
+15. **NPM Launcher & Platform Packages**：`npx @harness2-morphd/cli`、平台二进制 optionalDependencies、签名/校验、`setup/doctor/update/uninstall`；
 16. **Electron Shell**：Windows `.exe`/便携版、BrowserWindow 加载同一 UI、原生文件夹选择器、签名/更新、无自启；
 17. **Host Discovery & Adapter**：PATH/npm 全局/常见目录/注册表扫描、版本矩阵、手动目录校验、适配回滚；
 18. **Tray & Window Manager**：宿主生命周期绑定、关闭到托盘、单实例聚合、菜单/状态/徽标、平台降级、无障碍；
@@ -2418,7 +2415,7 @@ queued → triaging → noop
 - 新增 NPM 分发包测试：`npx`/全局安装、平台包选择、幂等 setup、失败回滚、provenance/签名、`uninstall` 零残留、离线 tarball；
 - 新增 Electron 测试：`.exe` 安装/卸载、无管理员、签名校验、BrowserWindow 安全基线、宿主退出后无残留、与 NPM 设置一致性；
 - 新增宿主发现/适配测试：默认路径、非标准路径、多版本、错误目录零写入、版本不支持、宿主运行中、适配失败回滚、手动文件夹在两种壳均可用；
-- 新增托盘测试：Electron 与桌面 NPM helper 随宿主出现/消失、关闭到托盘、多宿主单托盘、宿主崩溃无孤儿、仅配置模式无托盘、Linux 降级、无障碍菜单、默认无徽标；
+- 新增托盘测试：Electron 与桌面 NPM helper 随宿主出现/消失、关闭到托盘、多宿主单托盘、宿主崩溃无孤儿、仅配置模式无托盘、无桌面降级、无障碍菜单、默认无徽标；
 - 新增视觉测试：三色令牌审计、无灰/渐变/半透明、无直角、圆角 4–10px、对比度 AA、状态不只靠颜色、图表线型/图案、100%/125%/150% DPI 截图回归。
 
 ---
@@ -2448,7 +2445,7 @@ queued → triaging → noop
 - **隐身会话**：本次不捕获、不落盘、不分析、不计费的会话。
 - **静默时段**：只把建议放入待看、不主动通知的时间段。
 - **休假模式**：暂停自动学习与所有通知，恢复时只汇总、不补跑。
-- **NPM 一键安装**：一条 `npx @morphd/cli@latest setup` 命令完成安装、宿主检测、注册与引导。
+- **NPM 一键安装**：一条 `npx @harness2-morphd/cli@latest setup` 命令完成安装、宿主检测、注册与引导。
 - **Electron 桌面壳**：Windows `.exe` 的桌面应用外壳；加载与 NPM 相同的 Web UI，不复制引擎、不常驻。
 - **平台二进制**：按 OS/CPU 预编译的 morphd 引擎；通过 npm optionalDependencies 或 Electron 安装包分发，用户无需 Python/编译。
 - **宿主发现**：扫描 PATH、npm 全局目录、常见安装/配置目录与注册表，识别 dsh/Claude/Codex 及版本；不整盘扫描。
@@ -2486,10 +2483,10 @@ queued → triaging → noop
 | Web UI | 本地 Web 应用；所有设置、历史、候选、隐私、诊断页面 |
 | Electron 应用 | Windows `.exe`/便携版；托盘、窗口、原生文件夹选择器 |
 | 安装器 | 宿主发现、版本校验、备份/注册/回滚、手动文件夹、卸载 |
-| NPM 包 | `@morphd/cli`、`@morphd/tray`、`@morphd/<os>-<arch>` |
+| NPM 包 | `@harness2-morphd/cli`、`@harness2-morphd/tray`、`@harness2-morphd/win32-x64` |
 | 文档 | 用户帮助、隐私政策、服务条款、诊断说明、发布说明 |
 | 测试 | 引擎单测、消费层单测、假 CLI E2E、安装器/Electron/视觉回归 |
-| 发布物 | npm tarball、`.exe`、macOS/Linux 包、签名、校验和、SBOM、provenance |
+| 发布物 | npm tarball、Windows `.exe`、校验和、SBOM、provenance |
 
 **推荐仓库结构**（现有引擎可保留在原路径）：
 
@@ -2504,8 +2501,8 @@ consumer/
   installer/             # 宿主发现、适配、备份/回滚
   shared/                # TS 类型、JSON Schema、IPC 契约
 packages/
-  cli/                   # @morphd/cli
-  tray/                  # @morphd/tray
+  cli/                   # @harness2-morphd/cli
+  tray/                  # @harness2-morphd/tray
   platform/              # 平台二进制构建输出
 deploy/                  # 容器、签名、发布脚本
 docs/                    # 帮助/隐私/条款/发布说明
@@ -2524,11 +2521,11 @@ vendor/harness2-src/     # pinned Harness²（不修改）
 | 上游 | Harness² `1cfe254e8d25` | 不修改、不 fork；通过 import 或 vendored 副本 |
 | 宿主桥 | TypeScript + Node | Node `>=20`；dsh 自身要求 `^22.19.0` 或 `>=24.0.0` |
 | Web UI | React + Vite + TypeScript | 离线资源；无外部 CDN；严格 CSP |
-| 桌面 | Electron + electron-builder/NSIS | Windows x64 C0；macOS/Linux C1 |
+| 桌面 | Electron + electron-builder/NSIS | Windows 10/11 x64 |
 | Tray helper | 小型平台原生 helper（语言不限） | 无引擎/无 UI；随宿主启动/退出；签名；NPM 桌面默认，可关 |
 | 平台二进制 | PyInstaller `--onedir` 或等价 | 不在用户机器上编译；签名/校验和 |
 | 测试 | pytest、Vitest、Playwright、axe-core | 视觉回归 100%/125%/150% DPI |
-| CI | GitHub Actions 或等价 | Linux/macOS/Windows 矩阵；引擎/消费层/安装器/视觉 |
+| CI | GitHub Actions 或等价 | Windows 矩阵；引擎/消费层/安装器/视觉 |
 | 包管理 | pnpm（consumer）、pip（engine） | 锁定依赖；npm provenance |
 
 引擎通过已安装的 pinned `harness2` 或 vendored `vendor/harness2-src` 加载上游；实现可用 `MORPHD_HARNESS2_SRC` 指向 checkout，但消费级 UI 不暴露该环境变量。不得修改上游文件。
@@ -2555,7 +2552,7 @@ python -m build            # engine wheel (reference)
 pyinstaller ...            # engine platform binary
 ```
 
-**发布要求**：npm provenance、2FA、锁定依赖；Windows Authenticode；macOS notarization；平台二进制签名/校验和；SBOM；发布说明标注支持矩阵与已知限制。用户端不需要 Python/编译器/Node 手动配置；NPM 安装器需要 Node >=20。
+**发布要求**：npm provenance、2FA、锁定依赖；Windows Authenticode（当前发布未签名，属已知限制）；平台二进制校验和；SBOM；发布说明标注 Windows 10/11 x64 支持矩阵与已知限制。用户端不需要 Python/编译器/Node 手动配置；NPM 安装器需要 Node >=20。
 
 ### C.3 引擎契约
 
@@ -3300,7 +3297,7 @@ interface HostAdapter {
   "version": 1,
   "app_version": "0.5.0",
   "platform": "win32-x64",
-  "npm_package": "@morphd/cli@0.5.0",
+  "npm_package": "@harness2-morphd/cli@0.5.0",
   "installed_at": "...",
   "uninstall_token": "...",
   "hosts": [
@@ -3361,7 +3358,7 @@ window.morphd = {
 | 消费层 | TypeScript 类型检查、lint、Vitest、数据 schema 校验 | 是 |
 | 宿主契约 | dsh/Claude/Codex 假 CLI 的发现/适配/会话结束/回放；BYOK mock provider 的工具/补丁模式 | 是 |
 | E2E | 安装→引导→会话结束→分析→建议→应用→撤销；100 次触发；零残留 | 是 |
-| 安装器 | NPM/`.exe` 在 Windows/macOS/Linux 矩阵；失败注入/回滚/卸载 | 是 |
+| 安装器 | NPM/`.exe` 在 Windows 10/11 x64；失败注入/回滚/卸载 | 是 |
 | Electron | Playwright、preload/IPC 安全、托盘、单实例、宿主退出 | 是 |
 | 视觉 | 三色/圆角 lint、axe、100%/125%/150% 截图回归 | 是 |
 | 打包 | wheel/平台二进制/npm pack/`.exe`、签名/校验和/SBOM/provenance | 是 |
@@ -3369,16 +3366,16 @@ window.morphd = {
 
 **测试矩阵**：
 
-- Python 3.12/3.13；Node 20/22/24；Windows x64、macOS arm64/x64、Linux x64/arm64；
+- Python 3.12/3.13；Node 20/22/24；Windows 10/11 x64；
 - 宿主：dsh 全功能；Claude/Codex beta；不支持版本允许拒绝但不崩溃；
 - 假 CLI 覆盖：单轮/多轮/超时/错误/未知事件/无 session log/预算中断/密钥泄漏/恶意候选/工具循环；
 - 视觉：浅/深色、100%/125%/150%、键盘/屏幕阅读器、对比度。
 
 **发布物**：
 
-- npm：`@morphd/cli`、`@morphd/tray`、平台包；provenance、2FA、锁定依赖；
-- Electron：Windows `.exe`/portable；C1 macOS `.dmg`/Linux AppImage；Authenticode/notarization；
-- 引擎 wheel 与平台二进制；SBOM、SHA256、签名；
+- npm：`@harness2-morphd/cli`、`@harness2-morphd/tray`、`@harness2-morphd/win32-x64`；provenance、2FA、锁定依赖；
+- Electron：Windows NSIS 安装版与 portable `.exe`；当前未签名；
+- Windows 引擎与平台包；SHA256；Authenticode/SBOM 待补；
 - 发布说明：支持矩阵、已知限制、迁移/回滚说明。
 
 ### C.6 Definition of Done
@@ -3413,7 +3410,7 @@ window.morphd = {
 | R9 | 三色/圆角 lint 报告 + 100%/125%/150% 截图 + 对比度/axe 报告 |
 | 引擎 | pytest/契约测试/假 CLI E2E 报告 |
 | 安全 | 密钥扫描、权限只读、egress、签名校验报告 |
-| 发布 | SBOM、SHA256、provenance、Authenticode/notarization 记录 |
+| 发布 | SBOM、SHA256、provenance、Authenticode 记录 |
 
 ### C.7 兼容矩阵、升级与数据迁移
 
@@ -3427,7 +3424,7 @@ window.morphd = {
 | Claude Code | `2.1.302` |
 | Python | 3.12/3.13 |
 | Node | 安装器 `>=20`；dsh 自身 `^22.19.0` 或 `>=24.0.0` |
-| 平台 | Windows x64（C0）；macOS arm64/x64、Linux x64/arm64（C1） |
+| 平台 | Windows 10/11 x64（唯一支持平台） |
 
 **升级判据**（任一宿主升级前）：
 

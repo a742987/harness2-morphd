@@ -18,6 +18,7 @@ import webbrowser
 from pathlib import Path
 
 from .. import store as engine_store
+from ..platform_support import require_windows
 from .lifecycle import server_info
 from .service import ConsumerService
 
@@ -54,6 +55,7 @@ def _icon_image():
 
 
 def run_tray(home: Path) -> int:
+    require_windows()
     try:
         settings = ConsumerService(home).settings_manager.load()
         if not settings.get("cadence", {}).get("tray_enabled", True):
@@ -61,10 +63,6 @@ def run_tray(home: Path) -> int:
             return 0
     except Exception:
         pass
-    if not sys.platform.startswith("win") and not sys.platform == "darwin":
-        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-            print("morphd tray: no desktop session; using the browser UI only.", file=sys.stderr)
-            return 0
     try:
         import pystray  # type: ignore
     except Exception:

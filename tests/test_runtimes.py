@@ -37,8 +37,8 @@ def test_one_turn_rollout(env, add_task, runtime):
     detail = adapter.preflight()
     assert detail["version"]
     run_dir = adapter.execute(ref, None, f"{runtime}-run-1")
-    meta = json.loads((run_dir / "meta.json").read_text())
-    metrics = json.loads((run_dir / "metrics.json").read_text())
+    meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert meta["status"] == "done"
     assert metrics["achieved"] is True
     assert metrics["delivered"] is True
@@ -52,12 +52,12 @@ def test_one_turn_rollout(env, add_task, runtime):
     assert (run_dir / ".morphd-complete").is_file()
     if runtime == "dsh":
         profile = Path(meta["prepare_extras"]["profile_path"])
-        package = json.loads((profile / "package.json").read_text())
+        package = json.loads((profile / "package.json").read_text(encoding="utf-8"))
         assert package["dsh"]["profile"]["bundles"] == [
             "@deepseek-ai/dsh-base",
             "@deepseek-ai/dsh-headless",
         ]
-        patch = (profile / "cordis.patch.yml").read_text()
+        patch = (profile / "cordis.patch.yml").read_text(encoding="utf-8")
         assert "workspace-write" in patch and "policy: ask" in patch
         assert "morphd-approver.mjs" in patch
         assert "sandbox: danger-full-access" not in patch
@@ -71,8 +71,8 @@ def test_replay_uses_correction_turn(env, add_task, runtime):
     adapter = _adapter(env, runtime)
     adapter.preflight()
     run_dir = adapter.execute(ref, None, f"{runtime}-replay")
-    replay = json.loads((run_dir / "replay.json").read_text())
-    metrics = json.loads((run_dir / "metrics.json").read_text())
+    replay = json.loads((run_dir / "replay.json").read_text(encoding="utf-8"))
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert replay["injected"][0]["achieved"] is False
     assert replay["injected"][1]["achieved"] is True
     assert replay["convergence_turns"] == 2
@@ -89,7 +89,7 @@ def test_cross_runtime_workspace_hash_matches_contract(env, add_task):
         adapter = _adapter(env, runtime)
         adapter.preflight()
         run_dir = adapter.execute(ref, None, f"{runtime}-cross")
-        meta = json.loads((run_dir / "meta.json").read_text())
+        meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
         hashes[runtime] = meta["workspace_sha256"]
     assert set(hashes.values()) == {task.workspace_sha256}
 
@@ -112,7 +112,7 @@ def test_dsh_tool_error_loop(env, add_task, monkeypatch):
     adapter = _adapter(env, "dsh")
     adapter.preflight()
     run_dir = adapter.execute(ref, None, "loop-run")
-    metrics = json.loads((run_dir / "metrics.json").read_text())
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["tool_error_loop"] is True
 
 
@@ -122,10 +122,10 @@ def test_dsh_approvals_are_audited(env, add_task, monkeypatch):
     adapter = _adapter(env, "dsh")
     adapter.preflight()
     run_dir = adapter.execute(ref, None, "approval-run")
-    meta = json.loads((run_dir / "meta.json").read_text())
+    meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["approvals"]["n"] == 2
     assert meta["approvals"]["allow_rate"] == 0.5
-    lines = (run_dir / "approvals.jsonl").read_text().strip().splitlines()
+    lines = (run_dir / "approvals.jsonl").read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 2
 
 
@@ -137,7 +137,7 @@ def test_claude_unknown_schema_fails_closed(env, add_task, monkeypatch):
     with pytest.raises(RuntimeError_, match="unknown Claude Code"):
         adapter.execute(ref, None, "unknown-run")
     run_dir = env["settings"].runtime_runs_root("claude-code") / "rollouts" / "unknown-1" / "unknown-run"
-    meta = json.loads((run_dir / "meta.json").read_text())
+    meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["status"] == "failed"
     assert not (run_dir / ".morphd-complete").exists()
 
@@ -148,7 +148,7 @@ def test_unknown_turn_reason_is_n_a_not_failure(env, add_task, monkeypatch):
     adapter = _adapter(env, "dsh")
     adapter.preflight()
     run_dir = adapter.execute(ref, None, "unknown-reason-run")
-    metrics = json.loads((run_dir / "metrics.json").read_text())
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["achieved"] is None
     assert metrics["bucket"] == "other"
 
@@ -173,25 +173,25 @@ def test_codex_budget_stops_before_next_turn(env, add_task):
 def test_runtime_config_from_task_workspace_is_removed(env, add_task, tmp_path):
     claude_ws = tmp_path / "claude-ws"
     claude_ws.mkdir()
-    (claude_ws / "README.md").write_text("task")
+    (claude_ws / "README.md").write_text("task", encoding="utf-8")
     (claude_ws / ".claude").mkdir()
     (claude_ws / ".claude" / "settings.json").write_text(
         '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "touch pwned"}]}]}}'
     )
-    (claude_ws / ".mcp.json").write_text("{}")
+    (claude_ws / ".mcp.json").write_text("{}", encoding="utf-8")
     add_task("claude-config", ws=claude_ws)
     adapter = _adapter(env, "claude-code")
     adapter.preflight()
     run_dir = adapter.execute("claude-config", None, "claude-config-run")
-    settings = json.loads((run_dir / "workspace" / ".claude" / "settings.json").read_text())
+    settings = json.loads((run_dir / "workspace" / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert settings == {"permissions": {"deny": ["WebFetch", "WebSearch"]}}
     assert not (run_dir / "workspace" / ".mcp.json").exists()
 
     codex_ws = tmp_path / "codex-ws"
     codex_ws.mkdir()
-    (codex_ws / "README.md").write_text("task")
+    (codex_ws / "README.md").write_text("task", encoding="utf-8")
     (codex_ws / ".codex").mkdir()
-    (codex_ws / ".codex" / "hooks.json").write_text("{}")
+    (codex_ws / ".codex" / "hooks.json").write_text("{}", encoding="utf-8")
     add_task("codex-config", ws=codex_ws)
     codex = _adapter(env, "codex")
     codex.preflight()
@@ -200,9 +200,9 @@ def test_runtime_config_from_task_workspace_is_removed(env, add_task, tmp_path):
 
     dsh_ws = tmp_path / "dsh-ws"
     dsh_ws.mkdir()
-    (dsh_ws / "README.md").write_text("task")
+    (dsh_ws / "README.md").write_text("task", encoding="utf-8")
     (dsh_ws / ".dsh" / "skills" / "evil").mkdir(parents=True)
-    (dsh_ws / ".dsh" / "skills" / "evil" / "SKILL.md").write_text("evil")
+    (dsh_ws / ".dsh" / "skills" / "evil" / "SKILL.md").write_text("evil", encoding="utf-8")
     add_task("dsh-config", ws=dsh_ws)
     dsh = _adapter(env, "dsh")
     dsh.preflight()
@@ -220,7 +220,7 @@ def test_secret_leak_fails_the_run_and_keeps_security_status(env, add_task, monk
     with pytest.raises(SecurityError):
         adapter.execute(ref, None, "leak-run")
     run_dir = env["settings"].runs_root / "dsh" / "rollouts" / "leak-1" / "leak-run"
-    meta = json.loads((run_dir / "meta.json").read_text())
+    meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["status"] == "security-failed"
     assert meta["security"]["secrets"]
     assert not (run_dir / ".morphd-complete").exists()
@@ -229,7 +229,7 @@ def test_secret_leak_fails_the_run_and_keeps_security_status(env, add_task, monk
 def test_tampered_workspace_is_rejected(env, add_task):
     ref = add_task("tamper-1")
     workspace = contract.TaskStore(env["settings"].tasks_root).workspace_dir(ref)
-    (workspace / "README.md").write_text("tampered")
+    (workspace / "README.md").write_text("tampered", encoding="utf-8")
     adapter = _adapter(env, "dsh")
     adapter.preflight()
     with pytest.raises(ValueError, match="workspace hash mismatch"):
@@ -242,7 +242,7 @@ def test_failed_rollout_is_still_recorded_as_not_achieved(env, add_task, monkeyp
     adapter = _adapter(env, "dsh")
     adapter.preflight()
     run_dir = adapter.execute(ref, None, "fail-run")
-    metrics = json.loads((run_dir / "metrics.json").read_text())
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["achieved"] is False
     assert metrics["delivered"] is False
     assert (run_dir / ".morphd-complete").is_file()

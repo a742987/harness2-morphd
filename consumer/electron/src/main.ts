@@ -25,8 +25,8 @@ import {
   waitForServer,
   type InstallHost,
   type ServerInfo,
-} from "./engine";
-import { TrayController } from "./tray";
+} from "./engine.js";
+import { TrayController } from "./tray.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const home = homeDir();
@@ -312,6 +312,7 @@ async function boot(): Promise<void> {
   try {
     ({ info, mode } = await ensureServer());
   } catch (error) {
+    console.error("harness2-morphd boot failed:", error);
     dialog.showErrorBox("harness2-morphd 无法启动", (error as Error).message);
     app.quit();
     return;
@@ -371,10 +372,6 @@ if (!gotLock) {
     }
   });
   app.whenReady().then(boot);
-  app.on("activate", () => {
-    if (mainWindow) mainWindow.show();
-    else if (server) createWindow(server);
-  });
   app.on("before-quit", () => {
     quitting = true;
     if (pollTimer) clearInterval(pollTimer);

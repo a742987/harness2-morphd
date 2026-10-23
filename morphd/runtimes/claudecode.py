@@ -10,7 +10,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from .. import _upstream, budget, config, pricing, store
+from .. import _upstream, budget, config, pricing, store, winproc
 from ..contract import TaskContract, TaskStore
 from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult
 from .base import RuntimeError_
@@ -269,7 +269,7 @@ class ClaudeCodeAdapter(BaseAdapter):
         if self._version_cache is not None:
             return self._version_cache
         proc = subprocess.run(
-            [self._binary(), "--version"], capture_output=True, text=True, timeout=20, check=False
+            winproc.command_line(self._binary(), ["--version"]), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False
         )
         out = (proc.stdout or proc.stderr or "").strip()
         if proc.returncode != 0 or not out:
@@ -279,9 +279,11 @@ class ClaudeCodeAdapter(BaseAdapter):
 
     def _preflight_runtime(self) -> dict:
         proc = subprocess.run(
-            [self._binary(), "--help"],
+            winproc.command_line(self._binary(), ["--help"]),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -391,6 +393,7 @@ class ClaudeCodeAdapter(BaseAdapter):
         runtime_home.mkdir(parents=True, exist_ok=True)
         (run_dir / "claude_config").mkdir(exist_ok=True)
         timed_out = False
+        argv = winproc.command_line(argv[0], argv[1:])
         try:
             with open(stream_path, "w", encoding="utf-8") as out, open(
                 stderr_path, "w", encoding="utf-8"

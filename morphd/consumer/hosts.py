@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import csv
+import io
 import json
 import os
 import re
@@ -12,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from .. import config
+from .. import config, winproc
 from .. import store as engine_store
 from . import APP_VERSION
 from .errors import ConsumerError
@@ -53,14 +55,8 @@ def _version_tuple(value: str) -> tuple[int, int, int] | None:
 
 
 def _command_line(argv: list[str]) -> list[str]:
-    """Windows .cmd/.bat shims need cmd.exe; direct executables stay direct.
-
-    Keep the command and its arguments as separate argv entries. Passing one joined
-    string makes cmd.exe treat the quoted path as a literal command name.
-    """
-    if os.name == "nt" and argv and argv[0].lower().endswith((".cmd", ".bat")):
-        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", *argv]
-    return argv
+    """Windows .cmd/.bat shims need cmd.exe; direct executables stay direct."""
+    return winproc.command_line(argv[0], argv[1:])
 
 
 def _exec_version(executable: str, *, timeout: int = 15) -> tuple[str, str]:
@@ -69,6 +65,8 @@ def _exec_version(executable: str, *, timeout: int = 15) -> tuple[str, str]:
             _command_line([executable, "--version"]),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             check=False,
             env={**os.environ, "NO_COLOR": "1"},
@@ -90,9 +88,7 @@ def _candidate_id(kind: str, executable: str, version: str) -> str:
 def _path_binaries(name: str) -> list[Path]:
     found: list[Path] = []
     seen = set()
-    names = [name]
-    if os.name == "nt":
-        names = [f"{name}.exe", f"{name}.cmd", f"{name}.bat", name]
+    names = [f"{name}.exe", f"{name}.cmd", f"{name}.bat", name]
     for raw in os.environ.get("PATH", "").split(os.pathsep):
         if not raw:
             continue
@@ -103,34 +99,34 @@ def _path_binaries(name: str) -> list[Path]:
                 resolved = path.resolve()
             except OSError:
                 resolved = path
-            key = str(resolved).lower() if os.name == "nt" else str(resolved)
+            key = str(resolved).lower()
             if key in seen:
                 continue
             seen.add(key)
-            if path.is_file() and os.access(path, os.X_OK):
+            if path.is_file():
                 found.append(path)
     return found
 
 
 def _common_bin_dirs() -> list[Path]:
     home = Path.home()
-    dirs = [
-        home / ".local" / "bin",
-        home / ".npm-global" / "bin",
-        home / ".bun" / "bin",
-        Path("/usr/local/bin"),
-        Path("/opt/homebrew/bin"),
-        Path("/opt/local/bin"),
-    ]
-    if os.name == "nt":
-        for env in ("LOCALAPPDATA", "APPDATA", "ProgramFiles", "ProgramFiles(x86)"):
-            raw = os.environ.get(env)
-            if raw:
-                base = Path(raw)
-                dirs.extend([base / "Programs", base / "Programs" / "nodejs", base / "npm"])
+    dirs = [home / ".local" / "bin", home / ".bun" / "bin"]
+    for env in ("APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+        raw = os.environ.get(env)
+        if raw:
+            base = Path(raw)
+            dirs.extend(
+                [
+                    base,
+                    base / "npm",
+                    base / "Programs",
+                    base / "Programs" / "nodejs",
+                    base / "Programs" / "Claude",
+                ]
+            )
     npm_prefix = _npm_prefix()
     if npm_prefix:
-        dirs.extend([npm_prefix / "bin", npm_prefix, npm_prefix / "node_modules" / ".bin"])
+        dirs.extend([npm_prefix, npm_prefix / "node_modules" / ".bin"])
     out = []
     seen = set()
     for directory in dirs:
@@ -150,9 +146,11 @@ def _npm_prefix() -> Path | None:
         return None
     try:
         proc = subprocess.run(
-            [npm, "config", "get", "prefix"],
+            winproc.command_line(npm, ["config", "get", "prefix"]),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
             check=False,
         )
@@ -168,13 +166,12 @@ def _default_config_dirs(kind: str) -> list[Path]:
     if env:
         dirs.append(Path(env).expanduser())
     dirs.extend(DEFAULT_CONFIG_DIR[kind])
-    if os.name == "nt":
-        appdata = os.environ.get("APPDATA")
-        local = os.environ.get("LOCALAPPDATA")
-        if appdata:
-            dirs.append(Path(appdata) / ("Claude" if kind == "claude-code" else kind))
-        if local and kind == "claude-code":
-            dirs.append(Path(local) / "Programs" / "Claude")
+    appdata = os.environ.get("APPDATA")
+    local = os.environ.get("LOCALAPPDATA")
+    if appdata:
+        dirs.append(Path(appdata) / ("Claude" if kind == "claude-code" else kind))
+    if local and kind == "claude-code":
+        dirs.append(Path(local) / "Programs" / "Claude")
     out = []
     seen = set()
     for directory in dirs:
@@ -261,34 +258,21 @@ def inspect_executable(executable: Path, kind: str, *, config_dir: Path | None =
 
 def host_running(kind: str) -> bool:
     """Best-effort check that the host is currently running. Never a write guard alone."""
-    name = HOST_BINARIES[kind]
-    me = os.getpid()
+    name = HOST_BINARIES[kind].lower()
     try:
-        if Path("/proc").is_dir():
-            for entry in Path("/proc").iterdir():
-                if not entry.name.isdigit() or int(entry.name) == me:
-                    continue
-                try:
-                    cmdline = (entry / "cmdline").read_bytes().replace(b"\x00", b" ").decode(
-                        "utf-8", errors="replace"
-                    )
-                except OSError:
-                    continue
-                if "morphd host" in cmdline or "morphd serve" in cmdline:
-                    continue
-                parts = cmdline.split()
-                if parts and Path(parts[0]).name in (name, f"{name}.exe"):
-                    return True
-            return False
-        if os.name == "nt":
-            proc = subprocess.run(
-                ["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=10, check=False
-            )
-            return f'"{name}.exe"' in (proc.stdout or "").lower()
         proc = subprocess.run(
-            ["ps", "-axo", "comm="], capture_output=True, text=True, timeout=10, check=False
+            ["tasklist", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            check=False,
         )
-        return any(Path(line.strip()).name == name for line in (proc.stdout or "").splitlines())
+        for row in csv.reader(io.StringIO(proc.stdout or "")):
+            if row and Path(row[0]).stem.lower() == name:
+                return True
+        return False
     except Exception:
         return False
 
@@ -312,7 +296,7 @@ class HostManager:
             raw = {}
         raw.setdefault("version", 1)
         raw.setdefault("app_version", APP_VERSION)
-        raw.setdefault("platform", f"{sys.platform}-{os.uname().machine if hasattr(os, 'uname') else 'unknown'}")
+        raw.setdefault("platform", "win32-x64")
         raw.setdefault("hosts", [])
         return raw
 
@@ -348,14 +332,14 @@ class HostManager:
             name = HOST_BINARIES[kind]
             paths = _path_binaries(name)
             for directory in _common_bin_dirs():
-                for suffix in (["exe", "cmd", "bat", ""] if os.name == "nt" else [""]):
+                for suffix in ("exe", "cmd", "bat", ""):
                     path = directory / f"{name}.{suffix}" if suffix else directory / name
-                    if path.is_file() and os.access(path, os.X_OK):
+                    if path.is_file():
                         paths.append(path)
             unique: list[Path] = []
             for path in paths:
                 try:
-                    key = str(path.resolve()).lower() if os.name == "nt" else str(path.resolve())
+                    key = str(path.resolve()).lower()
                 except OSError:
                     key = str(path).lower()
                 if key not in seen:
@@ -399,13 +383,15 @@ class HostManager:
         if path.is_file():
             executable = path
         elif path.is_dir():
-            names = [HOST_BINARIES[kind]]
-            if os.name == "nt":
-                names = [f"{HOST_BINARIES[kind]}.exe", f"{HOST_BINARIES[kind]}.cmd", HOST_BINARIES[kind]]
+            names = [
+                f"{HOST_BINARIES[kind]}.exe",
+                f"{HOST_BINARIES[kind]}.cmd",
+                HOST_BINARIES[kind],
+            ]
             for candidate_name in names:
                 for base in (path, path / "bin", path / "node_modules" / ".bin"):
                     candidate = base / candidate_name
-                    if candidate.is_file() and os.access(candidate, os.X_OK):
+                    if candidate.is_file():
                         executable = candidate
                         break
                 if executable:
@@ -460,16 +446,6 @@ class HostManager:
             return sys.executable, []
         return sys.executable, ["-m", "morphd"]
 
-    def _wrapper_script(self, kind: str, executable: str) -> str:
-        command, prefix = self._engine_command()
-        quote = json.dumps
-        pieces = [quote(command), *prefix, "host", "run", "--host", kind, "--binary", quote(executable), "--", "\"$@\""]
-        return (
-            "#!/bin/sh\n"
-            "# generated by morphd; backs up nothing in the host install.\n"
-            f"exec {' '.join(pieces)}\n"
-        )
-
     def _wrapper_cmd(self, kind: str, executable: str) -> str:
         command, prefix = self._engine_command()
         pieces = [f'"{command}"', *prefix, "host", "run", "--host", kind, "--binary", f'"{executable}"', "--", "%*"]
@@ -507,16 +483,8 @@ class HostManager:
         created: list[str] = []
         integration = "wrapper"
         try:
-            if os.name == "nt":
-                wrapper = bin_dir / f"{HOST_BINARIES[kind]}.cmd"
-                engine_store.atomic_write_text(wrapper, self._wrapper_cmd(kind, str(executable)))
-            else:
-                wrapper = bin_dir / HOST_BINARIES[kind]
-                engine_store.atomic_write_text(wrapper, self._wrapper_script(kind, str(executable)))
-                try:
-                    os.chmod(wrapper, 0o755)
-                except OSError:
-                    pass
+            wrapper = bin_dir / f"{HOST_BINARIES[kind]}.cmd"
+            engine_store.atomic_write_text(wrapper, self._wrapper_cmd(kind, str(executable)))
             created.append(str(wrapper))
             plugin_note = host_root / "README.txt"
             engine_store.atomic_write_text(
@@ -587,8 +555,6 @@ class HostManager:
         wrapper = Path(record["wrapper"])
         if not wrapper.is_file():
             return {"ok": False, "reason": "wrapper 未写入"}
-        if os.name != "nt" and not os.access(wrapper, os.X_OK):
-            return {"ok": False, "reason": "wrapper 不可执行"}
         return {"ok": True, "reason": ""}
 
     def _install_claude_hook(self, hook_file: Path) -> dict:
@@ -774,8 +740,13 @@ class HostManager:
                 f"{rel} 解析后越过允许的 harness 目录（符号链接或路径穿越）。",
                 "移除符号链接后重试。",
             ) from exc
-        if target.is_symlink() or any(parent.is_symlink() for parent in target.parents if parent != target):
-            raise ConsumerError("CANDIDATE_UNSAFE", f"{rel} 是符号链接或被符号链接目录包含。", "移除符号链接后重试。")
+        junction = getattr(target, "is_junction", lambda: False)
+        if (
+            target.is_symlink()
+            or junction()
+            or any(parent.is_symlink() for parent in target.parents if parent != target)
+        ):
+            raise ConsumerError("CANDIDATE_UNSAFE", f"{rel} 是符号链接/联接点或被其目录包含。", "移除符号链接或联接点后重试。")
         return target
 
     def apply_tree(self, kind: str, tree: dict[str, str], *, project_root: str | None = None) -> list[str]:

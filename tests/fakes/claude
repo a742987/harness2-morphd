@@ -13,21 +13,21 @@ for i,a in enumerate(args):
 prompt=sys.stdin.read()
 config=Path(os.environ.get('CLAUDE_CONFIG_DIR', '/tmp'))
 state=config/'fake-state.json'
-data=json.loads(state.read_text()) if state.exists() else {'turns':0,'sid':None}
+data=json.loads(state.read_text(encoding="utf-8")) if state.exists() else {'turns':0,'sid':None}
 if not sid: sid=data.get('sid') or str(uuid.uuid4())
 turn=data['turns']+1
 fail=('FAIL_FIRST' in prompt and turn==1)
 if os.environ.get('FAKE_REQUIRE_MARKER'):
     agents = Path('CLAUDE.md')
-    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(errors='replace'):
+    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(encoding='utf-8', errors='replace'):
         fail = True
-data={'turns':turn,'sid':sid}; state.write_text(json.dumps(data))
+data={'turns':turn,'sid':sid}; state.write_text(json.dumps(data), encoding="utf-8")
 print(json.dumps({'type':'system','subtype':'init','session_id':sid,'tools':['Bash','Read','Edit']}))
 print(json.dumps({'type':'assistant','session_id':sid,'message':{'role':'assistant','content':[{'type':'text','text':'working'},{'type':'tool_use','id':'tu1','name':'Bash','input':{'command':'echo hi'}}]}}))
 print(json.dumps({'type':'user','session_id':sid,'message':{'role':'user','content':[{'type':'tool_result','tool_use_id':'tu1','content':'hi','is_error':False}]}}))
 if os.environ.get('FAKE_CLAUDE_UNKNOWN'):
     print(json.dumps({'type':'mystery_event','foo':1}))
 if not fail:
-    Path('hello.txt').write_text('hello from fake claude\n')
+    Path('hello.txt').write_text('hello from fake claude\n', encoding="utf-8")
 print(json.dumps({'type':'result','subtype':'success' if not fail else 'error_during_execution','is_error':bool(fail),'result':'done' if not fail else 'failed','session_id':sid,'total_cost_usd':0.001,'usage':{'input_tokens':100,'output_tokens':20,'cache_read_input_tokens':10},'num_turns':1,'duration_ms':12}))
 raise SystemExit(0)

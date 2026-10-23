@@ -1,43 +1,45 @@
-# Runbook
+# Runbook — Windows 10/11 x64
 
-This runbook covers the consumer product and the retained advanced engine path. There is no
-scheduled harness2-morphd process: no cron, systemd, launchd, Task Scheduler, daemon, or cloud queue.
+This runbook covers the consumer product and the retained advanced engine path. The product
+supports **Windows 10/11 x64 only**. There is no scheduled harness2-morphd process: no Task
+Scheduler entry, daemon, cron, or cloud queue.
 
 ## 1. Install
 
-### Source / development
+### Electron desktop (recommended for end users)
 
-```sh
-python3.12 -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-npm --prefix consumer/web install
-npm --prefix consumer/web run build
-morphd setup --host dsh --project /srv/project
-```
+- Install `harness2-morphd-<version>-win-x64-setup.exe` (per-user NSIS) or run the portable
+  `.exe`. No administrator rights are required.
+- The installer and engine are **not Authenticode-signed** in the current release; Windows may
+  show a SmartScreen warning.
+- The desktop shell loads the local UI from the host server. The tray appears only while the
+  host is running; closing the window hides to tray by default.
+- `--config-only` has no tray and quits when the window closes.
 
-### NPM (published path)
+### NPM launcher
 
-```sh
+```powershell
 npx @harness2-morphd/cli@latest setup
 npx @harness2-morphd/cli@latest doctor
 ```
 
-- Node `>=20`; the launcher does not use sudo, `curl | sh`, or arbitrary postinstall.
-- The engine comes from a signed platform package, `MORPHD_ENGINE_BIN`, or a development Python
-  install. Missing platform packages produce an actionable error; they are never downloaded
-  from an arbitrary URL.
+- Node `>=20`; the launcher does not use `sudo`, `curl | sh`, or arbitrary postinstall scripts.
+- The engine comes from `@harness2-morphd/win32-x64`, an explicit `MORPHD_ENGINE_BIN`, or a
+  development Python install. Missing platform packages produce an actionable error and are
+  never downloaded from an arbitrary URL.
 - `setup` adapts the host and opens the three-step guide. Close the temporary installer UI with
   Ctrl+C after the guide; it is not resident.
 
-### Electron (Windows C0)
+### Source / development
 
-- Per-user NSIS `.exe` or portable `.exe`; no administrator rights.
-- The desktop shell loads the same local UI from the host server.
-- Tray appears only while the host is running; closing the window hides to tray by default.
-- `--config-only` has no tray and quits when the window closes.
-- Packaging requires a signed engine and Authenticode certificate in CI; see
-  `docs/compatibility.md` and `packages/platform/README.md`.
+```powershell
+py -3.12 -m venv .venv-win
+.venv-win\Scripts\Activate.ps1
+python -m pip install -e ".[dev,tray,build]"
+npm --prefix consumer/web install
+npm --prefix consumer/web run build
+morphd setup --host dsh --project C:\path\to\project
+```
 
 ## 2. First configuration
 
@@ -103,16 +105,16 @@ explicit confirmation, a budget lock, auto-rollback, and a snapshot.
 - `morphd privacy export` writes a JSON bundle without keys or snapshot file contents.
 - The Privacy page can export/download the same bundle and run retention immediately.
 - Delete scope: session, project, or all sessions/suggestions/jobs/snapshots/logs/exports.
-  Settings and keys are separate; deleting a provider removes its keychain/vault reference.
+  Settings and keys are separate; deleting a provider removes its Credential Manager/vault entry.
 - Uninstall restores host backups and removes wrappers/hooks. It never deletes host files.
   It asks whether to delete local data.
-- Back up `MORPHD_HOME` if you need sessions/suggestions; do not back up plaintext keys (there
-  are none in the data directory).
+- Back up `%USERPROFILE%\.morphd` (or `MORPHD_HOME`) if you need sessions/suggestions; do not
+  back up plaintext keys (there are none in the data directory).
 
 ## 8. Logs and privacy
 
-- `~/.morphd/logs/events.jsonl` is redacted, rolls at 100MB, and never contains keys or full
-  sessions.
+- `%USERPROFILE%\.morphd\logs\events.jsonl` is redacted, rolls at 100 MB, and never contains
+  keys or full sessions. Windows ACLs inherit from the user profile.
 - Send preview uses the same redaction/exclusion path as real requests. Criteria, credentials,
   private keys, `.env` files, and excluded globs never enter the payload.
 - Telemetry is off and not implemented; no device fingerprint or package list is uploaded.
@@ -122,18 +124,19 @@ explicit confirmation, a budget lock, auto-rollback, and a snapshot.
 The engine CLI remains available for task libraries, shadow evaluation, promotion and reports.
 It is not used by the consumer UI.
 
-```sh
-morphd tasks import --sessions-root "$DSH_HOME/sessions" --domain backend --copy-workspace
+```powershell
+morphd tasks import --sessions-root "$env:USERPROFILE\.dsh\sessions" --domain backend --copy-workspace
 morphd tasks split --holdout 0.2 --test 0.5
 morphd run --runtime dsh --split train --budget-usd 5 --budget-calls 60 --model dsh=<model> --dry-run
 morphd evaluate --runtime dsh --candidate <tree> --split test,holdout --budget-usd 5 --budget-calls 60 --model <model> --gate
-morphd promote --runtime dsh --candidate <tree> --eval <report> --p2 alice --p3 bob --target /srv/dsh-home
+morphd promote --runtime dsh --candidate <tree> --eval <report> --p2 alice --p3 bob --target C:\dsh-home
 morphd rollback --runtime dsh --snapshot <id>
 ```
 
-- Real engine runs default to the host-native sandbox. Container/egress is opt-in strict mode:
-  set `MORPHD_CONTAINER_REQUIRED=1`, run inside the container, and set `MORPHD_EGRESS_ENFORCED=1`
-  plus the allowlist.
+- Real engine runs default to the host-native sandbox. Container/egress is an optional strict
+  mode for enterprise deployments: set `MORPHD_CONTAINER_REQUIRED=1`, run inside an external
+  isolated container (for example Docker Desktop), and set `MORPHD_EGRESS_ENFORCED=1` plus the
+  allowlist. The repository does not ship a container image.
 - Pricing must be confirmed before real runs (`pricing.yaml`); dry-run never calls a model.
 - Codex does not use bypass flags. If the pinned version lacks a usable non-bypass sandbox,
   mark Codex beta/unsupported.
@@ -144,5 +147,5 @@ morphd rollback --runtime dsh --snapshot <id>
 - [ ] All host wrappers/hooks removed and backups restored.
 - [ ] No harness2-morphd process, listening port, scheduled task, service, or orphan tray.
 - [ ] Optional local data deleted or retained as chosen.
-- [ ] Provider keys removed from Keychain/vault.
+- [ ] Provider keys removed from Windows Credential Manager/vault.
 - [ ] Host itself untouched.

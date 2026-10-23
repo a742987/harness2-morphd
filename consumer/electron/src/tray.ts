@@ -4,7 +4,7 @@ import {
   nativeImage,
   type MenuItemConstructorOptions,
 } from "electron";
-import { api, type ServerInfo } from "./engine";
+import { api, type ServerInfo } from "./engine.js";
 
 export interface TrayHooks {
   showWindow: () => void;
@@ -40,7 +40,6 @@ export class TrayController {
   start(): boolean {
     try {
       const image = nativeImage.createFromPath(this.iconPath);
-      if (process.platform === "darwin" && !image.isEmpty()) image.setTemplateImage(true);
       this.tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
       this.tray.setToolTip("harness2-morphd");
       this.tray.on("click", () => this.hooks.showWindow());

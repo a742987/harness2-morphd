@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7,17 +7,11 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const cli = fileURLToPath(new URL("../dist/index.js", import.meta.url));
-const isWindows = process.platform === "win32";
 
 function fakeEngine(dir) {
-  const script = isWindows ? join(dir, "engine.cmd") : join(dir, "engine");
+  const script = join(dir, "engine.cmd");
   const log = join(dir, "calls.log");
-  if (isWindows) {
-    writeFileSync(script, `@echo off\r\necho %*>>"${log}"\r\nexit /b 0\r\n`);
-  } else {
-    writeFileSync(script, `#!/bin/sh\necho "$@" >> "${log}"\nexit 0\n`);
-    chmodSync(script, 0o755);
-  }
+  writeFileSync(script, `@echo off\r\necho %*>>"${log}"\r\nexit /b 0\r\n`);
   return { script, log };
 }
 

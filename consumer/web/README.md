@@ -1,9 +1,9 @@
 # @harness2-morphd/web
 
-Offline, local-only React + Vite UI for harness2-morphd. It is served by the local Python engine;
-there is no CDN and no runtime network access beyond loopback.
+Offline, local-only React + Vite UI for harness2-morphd on Windows 10/11 x64. It is served by
+the local Python engine; there is no CDN and no runtime network access beyond loopback.
 
-```sh
+```powershell
 npm install
 npm run dev       # use with `morphd serve` in another terminal (API only; dev UI origin differs)
 npm run lint      # design-token/radius lint + tsc

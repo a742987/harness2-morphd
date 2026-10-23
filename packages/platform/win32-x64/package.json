@@ -1,7 +1,7 @@
 {
   "name": "@harness2-morphd/win32-x64",
   "version": "0.5.0",
-  "description": "harness2-morphd engine and UI assets for win32-x64",
+  "description": "harness2-morphd engine and UI assets for Windows 10/11 x64",
   "license": "Apache-2.0",
   "os": [
     "win32"
@@ -12,7 +12,9 @@
   "files": [
     "bin",
     "README.md",
-    "SHA256SUMS"
+    "SHA256SUMS",
+    "LICENSE",
+    "NOTICE"
   ],
   "morphd": {
     "engine": "bin/morphd-engine.exe"

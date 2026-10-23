@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .. import _upstream, approvals, budget, config, metrics, pricing, store
+from .. import _upstream, approvals, budget, config, metrics, pricing, store, winproc
 from ..contract import TaskContract, TaskStore
 from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult
 from .base import RuntimeError_
@@ -454,9 +454,11 @@ class DshAdapter(BaseAdapter):
         if self._version_cache is not None:
             return self._version_cache
         proc = subprocess.run(
-            [self._binary(), "--version"],
+            winproc.command_line(self._binary(), ["--version"]),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=20,
             check=False,
         )
@@ -526,7 +528,9 @@ class DshAdapter(BaseAdapter):
                 env = dict(os.environ)
                 env["DSH_HOME"] = str(home)
                 proc = subprocess.run(
-                    [self._binary(), "--profile", profile.name, "--dump-config"],
+                    winproc.command_line(
+                        self._binary(), ["--profile", profile.name, "--dump-config"]
+                    ),
                     cwd=tmp,
                     env=env,
                     capture_output=True,
@@ -624,7 +628,7 @@ class DshAdapter(BaseAdapter):
         stream_path = events_dir / f"dsh-turn-{turn_index + 1}-stream.jsonl"
         stderr_path = events_dir / f"dsh-turn-{turn_index + 1}-stderr.log"
         profile_id = meta_profile(run_dir)
-        cmd = [self._binary(), "--profile", profile_id, "--json"]
+        cmd = winproc.command_line(self._binary(), ["--profile", profile_id, "--json"])
         if session_id:
             cmd += ["--session-id", session_id]
         cmd += ["--", prompt]

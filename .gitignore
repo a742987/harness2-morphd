@@ -19,3 +19,8 @@ consumer/electron/release/
 consumer/electron/dist/
 packages/*/dist/
 *.tsbuildinfo
+packages/platform/*/bin/
+packages/platform/*/SHA256SUMS
+consumer/electron/resources/engine/
+release/
+*.spec

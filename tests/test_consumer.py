@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import threading
 import urllib.error
 import urllib.request
@@ -162,20 +161,13 @@ def _provider_payload(server: FakeProvider, *, provider_id="p_test"):
 def _fake_dsh(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    if os.name == "nt":
-        exe = bin_dir / "dsh.cmd"
-        exe.write_text(
-            "@echo off\r\nif \"%1\"==\"--version\" (echo dsh 0.2.1-fake & exit /b 0)\r\nexit /b 0\r\n"
-        )
-    else:
-        exe = bin_dir / "dsh"
-        exe.write_text(
-            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'dsh 0.2.1-fake'; exit 0; fi\nexit 0\n"
-        )
-        exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    exe = bin_dir / "dsh.cmd"
+    exe.write_bytes(
+        b'@echo off\r\nif "%1"=="--version" (echo dsh 0.2.1-fake & exit /b 0)\r\nexit /b 0\r\n'
+    )
     config = tmp_path / "dsh-home"
     (config / "profiles" / "default").mkdir(parents=True)
-    (config / "profiles" / "default" / "package.json").write_text("{}")
+    (config / "profiles" / "default" / "package.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv("DSH_HOME", str(config))
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     return exe, config
@@ -185,7 +177,7 @@ def _install_and_project(tmp_path, monkeypatch, home):
     exe, config = _fake_dsh(tmp_path, monkeypatch)
     project = tmp_path / "project"
     project.mkdir()
-    (project / "AGENTS.md").write_text("# Old guidance\n\n- Keep it minimal.\n")
+    (project / "AGENTS.md").write_text("# Old guidance\n\n- Keep it minimal.\n", encoding="utf-8")
     service = ConsumerService(home)
     candidate = service.hosts.validate_manual(
         "dsh", install_path=str(exe), config_path=str(config), project_root=str(project)
@@ -224,7 +216,7 @@ def test_encrypted_vault_roundtrip(home):
     assert ref.startswith("vault:")
     assert hint.endswith("cret")
     assert vault.get(ref) == "sk-test-secret"
-    raw = (store.home / "vault.enc").read_text()
+    raw = (store.home / "vault.enc").read_text(encoding="utf-8")
     assert "sk-test-secret" not in raw
     vault.delete(ref)
     assert vault.get(ref) is None
@@ -341,7 +333,7 @@ def test_dsh_session_import(tmp_path):
          "content": [{"type": "text", "text": "No, use make not npm"}]}}},
         {"type": "turn/end", "data": {"reason": {"kind": "completed"}}},
     ]
-    session_file.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    session_file.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
     from morphd.consumer.session_import import ingest
 
     context = ingest(
@@ -368,7 +360,7 @@ def test_candidate_apply_revert_end_to_end(tmp_path, monkeypatch, home, fake_pro
     service.settings_manager.save(settings)
     workspace = service.store.home / "session-source"
     workspace.mkdir()
-    (workspace / "main.py").write_text("print('hello')\n")
+    (workspace / "main.py").write_text("print('hello')\n", encoding="utf-8")
     context = SessionContext(
         session_id="sess-e2e",
         host="dsh",
@@ -397,11 +389,11 @@ def test_candidate_apply_revert_end_to_end(tmp_path, monkeypatch, home, fake_pro
     assert Path(candidate["diff_path"]).is_file()
     applied = service.candidates.apply(candidate["id"], confirm=True)
     assert applied["state"] == "applied"
-    assert "project checks" in (project / "AGENTS.md").read_text()
+    assert "project checks" in (project / "AGENTS.md").read_text(encoding="utf-8")
     reverted = service.candidates.revert(candidate["id"], confirm=True)
     assert reverted["state"] == "reverted"
-    assert "project checks" not in (project / "AGENTS.md").read_text()
-    assert "Old guidance" in (project / "AGENTS.md").read_text()
+    assert "project checks" not in (project / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Old guidance" in (project / "AGENTS.md").read_text(encoding="utf-8")
 
 
 def test_session_incognito_and_idempotency(tmp_path, monkeypatch, home):
@@ -738,7 +730,7 @@ def test_send_preview_lists_harness_not_workspace_source(tmp_path, monkeypatch, 
     service, project, _record = _install_and_project(tmp_path, monkeypatch, home)
     workspace = tmp_path / "project"
     (workspace / "customer-data").mkdir(exist_ok=True)
-    (workspace / "customer-data" / "secret.txt").write_text("do not send")
+    (workspace / "customer-data" / "secret.txt").write_text("do not send", encoding="utf-8")
     context = SessionContext(
         session_id="sess-preview-files",
         host="dsh",

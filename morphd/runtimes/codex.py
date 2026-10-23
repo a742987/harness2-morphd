@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .. import _upstream, budget, config, pricing, sanitize, store
+from .. import _upstream, budget, config, pricing, sanitize, store, winproc
 from ..contract import TaskContract, TaskStore
 from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult
 from .base import RuntimeError_
@@ -105,7 +105,7 @@ class CodexAdapter(BaseAdapter):
         if self._version_cache is not None:
             return self._version_cache
         proc = subprocess.run(
-            [self._binary(), "--version"], capture_output=True, text=True, timeout=20, check=False
+            winproc.command_line(self._binary(), ["--version"]), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False
         )
         out = (proc.stdout or proc.stderr or "").strip()
         if proc.returncode != 0 or not out:
@@ -122,7 +122,7 @@ class CodexAdapter(BaseAdapter):
             (["resume", "--help"], "resume"),
         ):
             proc = subprocess.run(
-                [binary, *args], capture_output=True, text=True, timeout=20, check=False
+                winproc.command_line(binary, args), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False
             )
             if proc.returncode == 0:
                 self._resume_style = style
@@ -132,9 +132,11 @@ class CodexAdapter(BaseAdapter):
 
     def _preflight_runtime(self) -> dict:
         help_proc = subprocess.run(
-            [self._binary(), "exec", "--help"],
+            winproc.command_line(self._binary(), ["exec", "--help"]),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )
@@ -286,6 +288,7 @@ class CodexAdapter(BaseAdapter):
         env["HOME"] = str(run_dir / "home")
         env["NO_COLOR"] = "1"
         timed_out = False
+        argv = winproc.command_line(argv[0], argv[1:])
         try:
             with open(stream_path, "wb") as out, open(stderr_path, "wb") as err:
                 proc = subprocess.run(

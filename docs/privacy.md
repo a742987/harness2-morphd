@@ -11,8 +11,8 @@
 
 ## 存储
 
-- 数据目录 `~/.morphd`，目录 0700、记录 0600（在 OS 支持时）。
-- Key 优先 OS Keychain；不可用时使用用户口令保护的 AES-GCM 本地保险库。
+- 数据目录 `%USERPROFILE%\.morphd`（或 `MORPHD_HOME`），权限继承 Windows 用户配置目录 ACL。
+- Key 优先 Windows Credential Manager；不可用时使用用户口令保护的 AES-GCM 本地保险库。
 - 默认保留 30 天；可选 7/90/永久；可立即执行保留策略或删除。
 - 日志滚动上限 100MB，脱敏，不含 Key 与会话原文。
 

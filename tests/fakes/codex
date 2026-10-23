@@ -18,7 +18,7 @@ if resume:
 else:
     sid=None; prompt=args[1]
 home=Path(os.environ['CODEX_HOME']); state=home/'fake-state.json'
-data=json.loads(state.read_text()) if state.exists() else {'turns':0,'sid':None}
+data=json.loads(state.read_text(encoding="utf-8")) if state.exists() else {'turns':0,'sid':None}
 if resume: sid=sid or data.get('sid')
 if not sid:
     sid=f'thread-{uuid.uuid4().hex[:10]}'
@@ -26,13 +26,13 @@ turn=data['turns']+1
 fail = ('FAIL_FIRST' in prompt and turn==1)
 if os.environ.get('FAKE_REQUIRE_MARKER'):
     agents = Path('AGENTS.md')
-    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(errors='replace'):
+    if not agents.is_file() or 'MORPHD_IMPROVED' not in agents.read_text(encoding='utf-8', errors='replace'):
         fail = True
-data={'turns':turn,'sid':sid}; state.write_text(json.dumps(data))
+data={'turns':turn,'sid':sid}; state.write_text(json.dumps(data), encoding="utf-8")
 print(json.dumps({'type':'thread.started','thread_id':sid}))
 print(json.dumps({'type':'item.completed','item':{'id':'i1','type':'command_execution','command':'echo hi','status':'failed' if fail else 'completed','exit_code':1 if fail else 0,'aggregated_output':'boom' if fail else 'hi'}}))
 if not fail:
-    Path('hello.txt').write_text('hello from fake codex\n')
+    Path('hello.txt').write_text('hello from fake codex\n', encoding="utf-8")
 print(json.dumps({'type':'item.completed','item':{'id':'i2','type':'agent_message','text':'done' if not fail else 'failed'}}))
 if fail:
     print(json.dumps({'type':'turn.failed','error':{'message':'fake failure'}}))

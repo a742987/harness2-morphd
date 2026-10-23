@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-import stat
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -185,9 +184,5 @@ class ConsumerStore:
         return removed
 
     def permissions_ok(self) -> bool:
-        if os.name == "nt":
-            return True
-        try:
-            return stat.S_IMODE(self.home.stat().st_mode) & 0o077 == 0
-        except OSError:
-            return False
+        # Windows ACLs inherit from the user profile; POSIX mode bits are not authoritative.
+        return self.home.is_dir()

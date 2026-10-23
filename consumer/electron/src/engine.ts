@@ -1,11 +1,20 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
 
 const require = createRequire(import.meta.url);
+const PLATFORM_PACKAGE = "@harness2-morphd/win32-x64";
+
+function assertWindowsX64(): void {
+  if (process.platform !== "win32" || process.arch !== "x64") {
+    throw new Error(
+      `harness2-morphd supports Windows 10/11 x64 only; this is ${process.platform}-${process.arch}.`,
+    );
+  }
+}
 
 export interface ServerInfo {
   base_url: string;
@@ -74,18 +83,30 @@ export function readInstall(home = homeDir()): { hosts?: InstallHost[] } | null 
 }
 
 export function findEngine(): EngineSpec {
+  assertWindowsX64();
   const explicit = process.env.MORPHD_ENGINE_BIN?.trim();
-  if (explicit) return { command: explicit, prefix: [] };
-  const bundledRoot = join(process.resourcesPath || "", "resources");
-  for (const candidate of [
-    join(bundledRoot, "engine"),
-    join(bundledRoot, "engine", process.platform === "win32" ? "morphd-engine.exe" : "morphd-engine"),
-  ]) {
-    if (existsSync(candidate)) return { command: candidate, prefix: [] };
+  if (explicit) {
+    if (!existsSync(explicit)) {
+      throw new Error(`MORPHD_ENGINE_BIN points to a missing file: ${explicit}`);
+    }
+    return { command: explicit, prefix: [] };
   }
-  const platform = `@harness2-morphd/${process.platform}-${process.arch}`;
+  const bundledRoot = join(process.resourcesPath || "", "resources");
+  const bundledCandidates = [
+    join(bundledRoot, "engine", "morphd-engine.exe"),
+    join(bundledRoot, "engine"),
+  ];
+  for (const candidate of bundledCandidates) {
+    try {
+      if (existsSync(candidate) && statSync(candidate).isFile()) {
+        return { command: candidate, prefix: [] };
+      }
+    } catch {
+      /* ignore inaccessible candidates */
+    }
+  }
   try {
-    const manifest = require.resolve(`${platform}/package.json`);
+    const manifest = require.resolve(`${PLATFORM_PACKAGE}/package.json`);
     const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { morphd?: { engine?: string } };
     if (pkg.morphd?.engine) {
       const path = join(dirname(manifest), pkg.morphd.engine);
@@ -94,29 +115,46 @@ export function findEngine(): EngineSpec {
   } catch {
     /* optional package not installed */
   }
-  for (const python of [process.env.MORPHD_PYTHON, "python3", "python"].filter(Boolean) as string[]) {
-    const probe = spawnSync(python, ["-c", "import morphd"], { stdio: "ignore", timeout: 5000 });
-    if (probe.status === 0) return { command: python, prefix: ["-m", "morphd"] };
+  const explicitPython = process.env.MORPHD_PYTHON?.trim();
+  const candidates: EngineSpec[] = [
+    ...(explicitPython ? [{ command: explicitPython, prefix: [] }] : []),
+    { command: "python", prefix: [] },
+    { command: "py", prefix: ["-3"] },
+  ];
+  for (const candidate of candidates) {
+    const probe = spawnSync(candidate.command, [...candidate.prefix, "-c", "import morphd"], {
+      stdio: "ignore",
+      timeout: 5000,
+    });
+    if (probe.status === 0) {
+      return { command: candidate.command, prefix: [...candidate.prefix, "-m", "morphd"] };
+    }
   }
   throw new Error(
-    `No harness2-morphd engine found for ${process.platform}-${process.arch}. ` +
-      "Ship the platform engine under resources/engine or set MORPHD_ENGINE_BIN.",
+    "No harness2-morphd engine found for Windows x64. " +
+      `Looked in ${bundledCandidates.join(", ")}. ` +
+      `Install ${PLATFORM_PACKAGE} or set MORPHD_ENGINE_BIN.`,
   );
 }
 
 export function spawnEngine(args: string[], home = homeDir()): ChildProcess {
   const engine = findEngine();
-  return spawn(engine.command, [...engine.prefix, ...args], {
+  const child = spawn(engine.command, [...engine.prefix, ...args], {
     env: { ...process.env, MORPHD_HOME: home },
     stdio: "ignore",
   });
+  child.on("error", (error) => {
+    console.error("harness2-morphd engine spawn failed:", engine.command, error);
+  });
+  return child;
 }
 
 export function spawnHostWrapper(
   host: InstallHost,
   home = homeDir(),
 ): ChildProcess {
-  const batch = process.platform === "win32" && /\.(cmd|bat)$/iu.test(host.wrapper);
+  assertWindowsX64();
+  const batch = /\.(cmd|bat)$/iu.test(host.wrapper);
   const command = batch ? process.env.ComSpec || "cmd.exe" : host.wrapper;
   const args = batch ? ["/d", "/s", "/c", host.wrapper] : [];
   return spawn(command, args, {

@@ -296,7 +296,7 @@ export function Onboarding() {
                     id="onboard-project"
                     value={projectRoot}
                     onChange={(event) => setProjectRoot(event.target.value)}
-                    placeholder="/path/to/project"
+                    placeholder="C:\\path\\to\\project"
                     spellCheck={false}
                   />
                 </Field>
@@ -334,7 +334,7 @@ export function Onboarding() {
                       id="manual-install"
                       value={installPath}
                       onChange={(event) => setInstallPath(event.target.value)}
-                      placeholder="/usr/local/bin/dsh"
+                      placeholder="C:\\Users\\<you>\\AppData\\Roaming\\npm\\dsh.cmd"
                       spellCheck={false}
                     />
                   </Field>
@@ -344,7 +344,7 @@ export function Onboarding() {
                     id="manual-config"
                     value={configPath}
                     onChange={(event) => setConfigPath(event.target.value)}
-                    placeholder="~/.dsh"
+                    placeholder="C:\\Users\\<you>\\.dsh"
                     spellCheck={false}
                   />
                 </Field>
@@ -353,7 +353,7 @@ export function Onboarding() {
                     id="manual-project"
                     value={projectRoot}
                     onChange={(event) => setProjectRoot(event.target.value)}
-                    placeholder="/path/to/project"
+                    placeholder="C:\\path\\to\\project"
                     spellCheck={false}
                   />
                 </Field>

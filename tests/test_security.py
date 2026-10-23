@@ -21,20 +21,20 @@ def test_sanitize_removes_secrets_and_redacts(tmp_path):
     fake_key = "sk-" + "abcdefghijklmnop"
     src = tmp_path / "src"
     src.mkdir()
-    (src / ".env").write_text("DEEPSEEK_API_KEY=" + "sk-" + "supersecret123456" + "\n")
-    (src / "notes.txt").write_text("token=" + fake_key + " and hello\n")
-    (src / "id_rsa").write_text("PRIVATE")
+    (src / ".env").write_text("DEEPSEEK_API_KEY=" + "sk-" + "supersecret123456" + "\n", encoding="utf-8")
+    (src / "notes.txt").write_text("token=" + fake_key + " and hello\n", encoding="utf-8")
+    (src / "id_rsa").write_text("PRIVATE", encoding="utf-8")
     (src / "bin.dat").write_bytes(b"\x00\x01" + fake_key.encode())
     (src / "expected").mkdir()
-    (src / "expected" / "answer.txt").write_text("answer")
-    (src / "task.json").write_text("{}")
+    (src / "expected" / "answer.txt").write_text("answer", encoding="utf-8")
+    (src / "task.json").write_text("{}", encoding="utf-8")
     dest = tmp_path / "dest"
     report = sanitize.sanitize_tree(src, dest)
     assert ".env" in report.skipped_secret_files
     assert "id_rsa" in report.skipped_secret_files
     assert not (dest / ".env").exists()
-    assert fake_key not in (dest / "notes.txt").read_text()
-    assert "[REDACTED:" in (dest / "notes.txt").read_text()
+    assert fake_key not in (dest / "notes.txt").read_text(encoding="utf-8")
+    assert "[REDACTED:" in (dest / "notes.txt").read_text(encoding="utf-8")
     assert (dest / "bin.dat").read_bytes() == (src / "bin.dat").read_bytes()
     assert not (dest / "expected").exists()
     assert not (dest / "task.json").exists()

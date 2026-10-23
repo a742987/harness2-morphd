@@ -23,7 +23,7 @@ def test_parity_and_report_labels(env, add_task):
         adapter = _adapter(env, runtime)
         adapter.preflight()
         run_dir = adapter.execute("demo-1", None, f"{runtime}-parity-run")
-        assert json.loads((run_dir / "metrics.json").read_text())["achieved"] is True
+        assert json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))["achieved"] is True
     data = parity.collect(env["settings"], ["dsh", "codex"])
     assert data["runtimes"]["dsh"]["task_available"] == 1.0
     assert data["runtimes"]["dsh"]["replay_converged"] == 1.0

@@ -1,6 +1,6 @@
 # @harness2-morphd/desktop
 
-The desktop shell for Windows (C0), macOS and Linux (C1). It is **not** a second engine.
+The Windows 10/11 x64 desktop shell for harness2-morphd. It is **not** a second engine.
 
 ## Lifecycle
 
@@ -21,16 +21,17 @@ The desktop shell for Windows (C0), macOS and Linux (C1). It is **not** a second
 
 `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, whitelisted preload,
 fixed/validated IPC channels, strict CSP from the local server, no remote navigation, denied
-permissions, no key access in the renderer, and signed-update-only policy (release CI).
+permissions, and no key access in the renderer.
 
 ## Build
 
-```sh
+```powershell
 npm install
 npm run build
 npm start -- --host dsh
-npm run dist          # electron-builder; requires a signed engine in resources/engine
+npm run dist -- --win --x64
 ```
 
-Place the signed engine at `resources/engine` (or set `MORPHD_ENGINE_BIN`). The release
-pipeline must Authenticode-sign Windows artifacts, notarize macOS, and verify SHA256/SBOM.
+Place the engine at `resources/engine/morphd-engine.exe` (or set `MORPHD_ENGINE_BIN`). The
+current release pipeline produces **unsigned** NSIS and portable installers; Authenticode
+signing, SmartScreen reputation and signed updates remain pending.

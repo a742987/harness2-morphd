@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Optional tray helper. It only attaches to an already-running host server and exits
- * when that server disappears. It never starts a host, a daemon, or a browser.
+ * Optional tray helper for Windows 10/11 x64. It only attaches to an already-running
+ * host server and exits when that server disappears. It never starts a host, a daemon,
+ * or a browser.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -11,9 +12,17 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 
 const require = createRequire(import.meta.url);
+const PLATFORM_PACKAGE = "@harness2-morphd/win32-x64";
+
+if (process.platform !== "win32" || process.arch !== "x64") {
+  process.stderr.write(
+    `morphd-tray: Windows 10/11 x64 only; this is ${process.platform}-${process.arch}.\n`,
+  );
+  process.exit(1);
+}
 
 function platformPackage() {
-  return `@harness2-morphd/${process.platform}-${process.arch}`;
+  return PLATFORM_PACKAGE;
 }
 
 function engine() {
@@ -29,12 +38,23 @@ function engine() {
   } catch {
     /* optional platform package missing */
   }
-  for (const python of [process.env.MORPHD_PYTHON, "python3", "python"].filter(Boolean)) {
-    const probe = spawnSync(python, ["-c", "import morphd"], { stdio: "ignore", timeout: 5000 });
-    if (probe.status === 0) return { command: python, prefix: ["-m", "morphd"] };
+  const explicitPython = process.env.MORPHD_PYTHON?.trim();
+  const candidates = [
+    ...(explicitPython ? [{ command: explicitPython, prefix: [] }] : []),
+    { command: "python", prefix: [] },
+    { command: "py", prefix: ["-3"] },
+  ];
+  for (const candidate of candidates) {
+    const probe = spawnSync(candidate.command, [...candidate.prefix, "-c", "import morphd"], {
+      stdio: "ignore",
+      timeout: 5000,
+    });
+    if (probe.status === 0) {
+      return { command: candidate.command, prefix: [...candidate.prefix, "-m", "morphd"] };
+    }
   }
   process.stderr.write(
-    `morphd-tray: no engine found for ${process.platform}-${process.arch}; ` +
+    `morphd-tray: no engine found for Windows x64; ` +
       `install ${platformPackage()} or set MORPHD_ENGINE_BIN.\n`,
   );
   process.exit(1);
@@ -49,7 +69,12 @@ if (!existsSync(serverFile)) {
 
 const spec = engine();
 const args = [...spec.prefix, "tray", "--home", home];
-const child = spawn(spec.command, args, { stdio: "inherit" });
+const batch = /\.(cmd|bat)$/iu.test(spec.command);
+const child = spawn(
+  batch ? process.env.ComSpec || "cmd.exe" : spec.command,
+  batch ? ["/d", "/s", "/c", spec.command, ...args] : args,
+  { stdio: "inherit" },
+);
 const forward = (signal) => {
   try {
     child.kill(signal);

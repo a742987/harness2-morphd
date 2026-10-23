@@ -14,13 +14,8 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 try:
-    import fcntl
-except ImportError:  # Windows
-    fcntl = None  # type: ignore[assignment]
-
-try:
     import msvcrt
-except ImportError:  # POSIX
+except ImportError:  # non-Windows (tooling only)
     msvcrt = None  # type: ignore[assignment]
 
 WORKSPACE_IGNORES = {
@@ -205,15 +200,12 @@ def file_lock(path: Path, *, timeout: float = 30.0) -> Iterator[None]:
     deadline = time.monotonic() + timeout
     try:
         locked = False
+        if msvcrt is None:
+            raise StoreError("Windows file locking is unavailable")
         while True:
             try:
-                if fcntl is not None:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                elif msvcrt is not None:
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    raise StoreError("no file-locking primitive is available on this platform")
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
                 locked = True
                 break
             except (BlockingIOError, OSError):
@@ -224,11 +216,8 @@ def file_lock(path: Path, *, timeout: float = 30.0) -> Iterator[None]:
     finally:
         try:
             if locked:
-                if fcntl is not None:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-                elif msvcrt is not None:
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
         finally:
             fh.close()
 

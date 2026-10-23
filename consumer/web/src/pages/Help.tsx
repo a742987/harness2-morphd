@@ -127,7 +127,7 @@ export function Help() {
               </tr>
               <tr>
                 <td>{l("托盘不出现", "Tray missing")}</td>
-                <td>{l("浏览器路径不提供系统托盘；Linux 无托盘环境会降级为仅窗口，并明确提示。", "The browser path has no system tray; Linux without a tray degrades to window-only with a notice.")}</td>
+                <td>{l("浏览器路径不提供系统托盘；无桌面会话时降级为浏览器 UI。", "The browser path has no system tray; without a desktop session it degrades to the browser UI.")}</td>
               </tr>
             </tbody>
           </table>
