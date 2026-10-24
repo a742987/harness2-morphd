@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from .. import security
+from .. import sanitize, security
 from .errors import ConsumerError
 from .util import diff_trees, is_secret_path, safe_rel
 
@@ -71,6 +71,8 @@ RISK_TERMS = re.compile(
     r"sandbox/mode|sandbox[_-]?policy|hooks?\.json|settings\.json|\.mcp\.json|"
     r"mcp\.json|cordis\.patch\.yml|permission[-_ ]?mode|dangerously[-_]bypass)"
 )
+CREDENTIAL_DIRS = {".ssh", ".aws", ".gnupg", ".kube", ".docker", ".password-store"}
+_CREDENTIAL_TOKEN = re.compile(r"[^\s\"'`<>()\[\]{},;]+")
 ALWAYS_ON_LIMIT = {"dsh": 65_536, "codex": 32_768, "claude-code": 32_768}
 
 
@@ -120,6 +122,21 @@ def _forbidden(rel: str) -> bool:
     if name in FORBIDDEN_NAMES or is_secret_path(rel):
         return True
     return any(rel == prefix or rel.startswith(prefix) for prefix in FORBIDDEN_PREFIXES)
+
+
+def _credential_reference(text: str) -> str:
+    """Return a credential path mentioned in candidate content, if any."""
+    for match in _CREDENTIAL_TOKEN.finditer(text):
+        token = match.group(0).strip("*`-").rstrip(".:")
+        if not token:
+            continue
+        normalized = token.replace("\\", "/")
+        name = normalized.rsplit("/", 1)[-1]
+        if sanitize.is_secret_filename(name):
+            return token
+        if any(part in CREDENTIAL_DIRS for part in normalized.split("/")):
+            return token
+    return ""
 
 
 def check_candidate(
@@ -183,9 +200,17 @@ def check_candidate(
             result.violations.append(
                 f"{rel}: references a controlled permission/config surface; rejected"
             )
+        credential = _credential_reference(after)
+        if credential and not _credential_reference(before or ""):
+            result.violations.append(
+                f"{rel}: references credential material ({credential}); candidates may not read "
+                "credentials, .env files or private keys"
+            )
     scan = security.scan_tree_contents(
         {rel: text for rel, text in candidate_tree.items() if rel in changed}
     )
+    # scan_tree_contents treats a missing base as "everything is new"; that is correct for
+    # consumer changed files because the caller has already compared them above.
     result.violations.extend(scan.violations)
     result.findings = [finding.to_dict() for finding in scan.findings]
     kinds = []

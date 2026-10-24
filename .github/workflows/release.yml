@@ -1,0 +1,226 @@
+name: release-windows-x64
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      PYTHONUTF8: "1"
+      NPM_CONFIG_PROVENANCE: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches package versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $expected = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "Tag $env:GITHUB_REF_NAME does not match workspace version $version."
+          }
+          $manifests = @(
+            "consumer/web/package.json",
+            "consumer/electron/package.json",
+            "packages/cli/package.json",
+            "packages/tray/package.json",
+            "packages/platform/win32-x64/package.json"
+          )
+          foreach ($manifest in $manifests) {
+            $declared = (Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json).version
+            if ($declared -ne $version) {
+              throw "Version mismatch: $manifest is $declared, workspace is $version."
+            }
+          }
+          $pyproject = Get-Content pyproject.toml -Raw
+          if ($pyproject -notmatch '(?m)^version = "([^"]+)"' -or $Matches[1] -ne $version) {
+            throw "Version mismatch: pyproject.toml does not declare $version."
+          }
+          $consumerInit = Get-Content morphd/consumer/__init__.py -Raw
+          if ($consumerInit -notmatch 'APP_VERSION = "([^"]+)"' -or $Matches[1] -ne $version) {
+            throw "Version mismatch: morphd/consumer/__init__.py does not declare $version."
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: python -m pip install -e ".[dev,tray,build]"
+
+      - name: Install Node dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          npm --prefix consumer/web ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix packages/cli ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix consumer/electron ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Python lint
+        run: python -m ruff check morphd tests
+
+      - name: Python tests
+        run: python -X utf8 -m pytest -q
+
+      - name: Vendor integrity
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_vendor.ps1
+
+      - name: Web design and type check
+        run: npm --prefix consumer/web run lint
+
+      - name: Web unit tests
+        run: npm --prefix consumer/web test
+
+      - name: Web build
+        run: npm --prefix consumer/web run build
+
+      - name: Visual and accessibility matrix
+        run: npm --prefix consumer/web run test:visual:matrix
+
+      - name: CLI package tests
+        run: npm --prefix packages/cli test
+
+      - name: Tray package tests
+        run: npm --prefix packages/tray test
+
+      - name: Electron type check
+        run: npm --prefix consumer/electron run build
+
+      - name: Electron security tests
+        run: npm --prefix consumer/electron test
+
+      - name: Prepare Authenticode certificate
+        shell: pwsh
+        env:
+          MORPHD_SIGN_CERT_BASE64: ${{ secrets.MORPHD_SIGN_CERT_BASE64 }}
+          MORPHD_SIGN_PASSWORD: ${{ secrets.MORPHD_SIGN_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ([string]::IsNullOrWhiteSpace($env:MORPHD_SIGN_CERT_BASE64)) {
+            Write-Host "No Authenticode certificate configured; building unsigned artifacts."
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:MORPHD_SIGN_PASSWORD)) {
+            throw "MORPHD_SIGN_PASSWORD must be set when MORPHD_SIGN_CERT_BASE64 is configured."
+          }
+          $path = Join-Path $env:RUNNER_TEMP "morphd-sign.pfx"
+          [System.IO.File]::WriteAllBytes(
+            $path,
+            [System.Convert]::FromBase64String($env:MORPHD_SIGN_CERT_BASE64)
+          )
+          "MORPHD_SIGN_CERT=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build release (engine, npm tarballs, Electron installers, SBOM)
+        shell: pwsh
+        env:
+          MORPHD_SIGN_PASSWORD: ${{ secrets.MORPHD_SIGN_PASSWORD }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_release.ps1 -SkipTests
+
+      - name: Verify release artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/verify_release.ps1", "-ReleaseDir", "release")
+          if (-not $env:MORPHD_SIGN_CERT) { $arguments += "-AllowUnsigned" }
+          & powershell @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness2-morphd-windows-x64
+          path: release/**
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --generate-notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          $files = @(
+            Get-ChildItem release -Recurse -File |
+              Where-Object { $_.Name -ne "SHA256SUMS-windows.txt" } |
+              Sort-Object FullName
+          )
+          foreach ($file in $files) {
+            gh release upload $tag $file.FullName --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          # GitHub flattens release asset paths. Publish a flat checksum file so
+          # downloaded assets can be verified without recreating electron/.
+          $flat = Join-Path $env:RUNNER_TEMP "SHA256SUMS-windows.txt"
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)"
+          }
+          [System.IO.File]::WriteAllLines($flat, @($lines), [System.Text.Encoding]::ASCII)
+          gh release upload $tag $flat --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  publish-npm:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_CONFIG_PROVENANCE: "true"
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: harness2-morphd-windows-x64
+          path: release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish platform package first
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $platform = Get-ChildItem release -Filter "harness2-morphd-win32-x64-*.tgz" | Select-Object -First 1
+          if (-not $platform) { throw "Platform tarball was not found." }
+          npm publish $platform.FullName --provenance --access public
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish tray and CLI packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($pattern in @("harness2-morphd-tray-*.tgz", "harness2-morphd-cli-*.tgz")) {
+            $package = Get-ChildItem release -Filter $pattern | Select-Object -First 1
+            if (-not $package) { throw "Package tarball was not found: $pattern" }
+            npm publish $package.FullName --provenance --access public
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

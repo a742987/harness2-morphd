@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import queue
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import store as engine_store
 from .analyzer import Analyzer
 from .attention import AttentionManager
 from .budget import ConsumerBudget
@@ -44,18 +46,94 @@ class JobRunner:
         self._stop = threading.Event()
         self._cancel: set[str] = set()
         self._thread: threading.Thread | None = None
+        self._supervisor: threading.Thread | None = None
         self._running_id: str | None = None
+        self._yield = threading.Event()
         self._lock = threading.Lock()
+        self._pid = os.getpid()
 
     # --- lifecycle ------------------------------------------------------------
     def start(self) -> None:
-        if self._thread and self._thread.is_alive():
+        if (self._thread and self._thread.is_alive()) or (
+            self._supervisor and self._supervisor.is_alive()
+        ):
             return
         self._stop.clear()
+        self._yield.clear()
+        self._register_worker()
+        if self._is_primary_worker():
+            self._start_worker()
+        self._supervisor = threading.Thread(
+            target=self._supervise, name="morphd-job-supervisor", daemon=True
+        )
+        self._supervisor.start()
+        self.store.append_log("job_runner_started")
+
+    def _workers_root(self) -> Path:
+        return self.store.home / "runtime" / "workers"
+
+    def _register_worker(self) -> None:
+        root = self._workers_root()
+        root.mkdir(parents=True, exist_ok=True)
+        engine_store.atomic_write_json(
+            root / f"{self._pid}.json",
+            {"version": 1, "pid": self._pid, "started_at": _now()},
+        )
+
+    def _unregister_worker(self) -> None:
+        try:
+            (self._workers_root() / f"{self._pid}.json").unlink()
+        except OSError:
+            pass
+
+    def _alive_worker_pids(self) -> list[int]:
+        from .. import winproc
+
+        root = self._workers_root()
+        pids: list[int] = []
+        if not root.is_dir():
+            return pids
+        for path in root.glob("*.json"):
+            payload = engine_store.read_json(path)
+            try:
+                pid = int(payload.get("pid", 0)) if isinstance(payload, dict) else 0
+            except (TypeError, ValueError):
+                pid = 0
+            if pid and winproc.pid_alive(pid):
+                pids.append(pid)
+            else:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+        if self._pid not in pids:
+            pids.append(self._pid)
+        return sorted(set(pids))
+
+    def _is_primary_worker(self) -> bool:
+        return min(self._alive_worker_pids()) == self._pid
+
+    def _start_worker(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
         self._recover()
         self._thread = threading.Thread(target=self._work, name="morphd-jobs", daemon=True)
         self._thread.start()
-        self.store.append_log("job_runner_started")
+
+    def _supervise(self) -> None:
+        while not self._stop.wait(2.0):
+            primary = self._is_primary_worker()
+            if primary and not self._yield.is_set():
+                if not (self._thread and self._thread.is_alive()):
+                    self._start_worker()
+            elif not primary:
+                # Another live host owns the queue. Mark the current job to pause at the
+                # next safe point instead of letting two workers process the same JSON.
+                self._yield.set()
+                if self._thread and not self._thread.is_alive():
+                    self._thread = None
+            else:
+                self._yield.clear()
 
     def stop(self, *, timeout: float = 10.0) -> None:
         self._stop.set()
@@ -70,6 +148,10 @@ class JobRunner:
         if self._thread:
             self._thread.join(timeout=timeout)
             self._thread = None
+        if self._supervisor:
+            self._supervisor.join(timeout=2)
+            self._supervisor = None
+        self._unregister_worker()
         self.store.append_log("job_runner_stopped")
 
     @property
@@ -84,7 +166,11 @@ class JobRunner:
     def _stop_requested(self) -> bool:
         with self._lock:
             current = self._running_id
-        return self._stop.is_set() or (current is not None and current in self._cancel)
+        return (
+            self._stop.is_set()
+            or self._yield.is_set()
+            or (current is not None and current in self._cancel)
+        )
 
     # --- enqueue --------------------------------------------------------------
     def _recover(self) -> None:
@@ -160,37 +246,75 @@ class JobRunner:
         source_workspace: Path | None = None,
         manual: bool = False,
     ) -> dict:
+        self.attention.apply_pending_incognito(context.session_id, context.started_at)
         if self.attention.is_incognito(context.session_id) or self.attention.was_incognito(context.session_id):
             self.attention.consume_incognito(context.session_id)
             self.store.append_log("session_incognito", host=context.host, session_id=context.session_id)
             self.attention.session_ended(context.session_id)
             return {"captured": False, "reason": "incognito", "session_id": context.session_id}
+        existing = self.store.read_record("sessions", str(context.session_id))
+        if isinstance(existing, dict) and existing.get("job_id"):
+            self.attention.session_ended(context.session_id)
+            return {
+                "captured": True,
+                "deduplicated": True,
+                "session_id": existing.get("id"),
+                "job_id": existing.get("job_id"),
+                "queued": existing.get("status") in ("queued", "analyzing", "paused"),
+            }
+        if isinstance(existing, dict) and existing.get("status") in (
+            "disabled",
+            "paused",
+            "project_disabled",
+            "sensitive_project",
+        ) and not manual:
+            self.attention.session_ended(context.session_id)
+            return {
+                "captured": True,
+                "deduplicated": True,
+                "session_id": existing.get("id"),
+                "queued": False,
+                "reason": existing.get("status"),
+            }
+        settings = self.settings.load()
+        paused = self.attention.is_paused()
+        project = self.store.read_record(
+            "projects", str(ProjectManager(self.store).for_root(Path(context.project_root or context.workspace))["id"])
+        ) or {}
+        blocked_reason = ""
+        if paused:
+            blocked_reason = "paused"
+            if self.attention.state().get("vacation"):
+                self.attention.note_vacation_skip()
+        elif not manual:
+            if not settings.get("enabled", True):
+                blocked_reason = "disabled"
+            elif project and not project.get("enabled", True):
+                blocked_reason = "project_disabled"
+            elif project and project.get("sensitive"):
+                blocked_reason = "sensitive_project"
+        recording = str(
+            settings.get("privacy", {}).get("paused_session_recording", "minimal")
+        )
+        if blocked_reason == "paused" and recording == "none":
+            self.attention.session_ended(context.session_id)
+            return {
+                "captured": False,
+                "reason": "paused_not_recorded",
+                "session_id": context.session_id,
+                "queued": False,
+            }
         session = save_session(
             self.store,
             context,
             source_workspace=source_workspace or Path(context.workspace),
             session_workspace=self.store.home / "sessions" / context.session_id / "workspace",
+            include_content=not (blocked_reason == "paused" and recording != "full"),
         )
         self.attention.session_ended(context.session_id)
-        # Update any running trial for this host/project before triage.
-        try:
-            self.analyzer.candidates.observe_session(session)
-        except Exception as exc:
-            self.store.append_log("trial_update_failed", session_id=session["id"], error=str(exc))
-        settings = self.settings.load()
-        project = self.store.read_record("projects", str(session.get("project_id"))) or {}
-        blocked_reason = ""
-        if not manual:
-            if not settings.get("enabled", True):
-                blocked_reason = "disabled"
-            elif self.attention.is_paused():
-                blocked_reason = "paused"
-            elif project and not project.get("enabled", True):
-                blocked_reason = "project_disabled"
-            elif project and project.get("sensitive"):
-                blocked_reason = "sensitive_project"
         if blocked_reason:
             session["status"] = blocked_reason
+            session["job_id"] = None
             self.store.write_record("sessions", str(session["id"]), session)
             return {
                 "captured": True,
@@ -198,6 +322,11 @@ class JobRunner:
                 "queued": False,
                 "reason": blocked_reason,
             }
+        # Only sessions that the product actually learns from count toward a trial.
+        try:
+            self.analyzer.candidates.observe_session(session)
+        except Exception as exc:
+            self.store.append_log("trial_update_failed", session_id=session["id"], error=str(exc))
         job = self.enqueue(session, force=manual)
         return {
             "captured": True,
@@ -252,14 +381,14 @@ class JobRunner:
             )
             if job_id in self._cancel:
                 self._mark_canceled(job)
-            elif self._stop.is_set():
+            elif self._stop.is_set() or self._yield.is_set():
                 self._mark_paused(job_id, reason="host_exit")
             else:
                 self._finish(job, session, result)
         except ConsumerError as exc:
             if exc.code == "JOB_CANCELED":
-                if self._stop.is_set():
-                    self._mark_paused(job_id, reason="host_exit")
+                if self._stop.is_set() or self._yield.is_set():
+                    self._mark_paused(job_id, reason="host_exit" if self._stop.is_set() else "worker_handoff")
                 else:
                     self._mark_canceled(job)
             elif exc.code == "BUDGET_EXCEEDED":
@@ -303,7 +432,9 @@ class JobRunner:
             "needs_apply": "needs_apply",
             "applied": "applied",
             "paused": "paused",
-            "needs_confirm": "needs_confirm",
+            # ``needs_confirm`` is a session/UI state, not a job state. The job is safely
+            # stopped and can be retried explicitly after the user confirms the preview.
+            "needs_confirm": "canceled",
         }.get(state, state)
         job["candidate_id"] = result.get("candidate_id")
         job["cost_usd"] = result.get("cost_usd", 0.0)
@@ -372,7 +503,7 @@ class JobRunner:
             self.store.write_record("sessions", str(job.get("session_id")), session)
         self.store.append_log("job_canceled", job_id=job.get("id"))
 
-    def retry(self, job_id: str, *, force: bool = True) -> dict:
+    def retry(self, job_id: str, *, force: bool = False) -> dict:
         job = self.store.read_record("jobs", job_id)
         if not isinstance(job, dict):
             raise ConsumerError("NOT_FOUND", "任务不存在。", "刷新历史页。")

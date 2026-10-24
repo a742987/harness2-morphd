@@ -27,6 +27,33 @@ def _ui_root() -> Path:
     return Path(__file__).resolve().parent / "webui"
 
 
+def _confirmed(payload: dict) -> bool:
+    if payload.get("confirm") is not True:
+        raise ConsumerError("INVALID_REQUEST", "这个操作需要再次确认。", "勾选确认后重试。")
+    return True
+
+
+def _newest_server(root: Path) -> dict | None:
+    from .. import winproc
+
+    candidates = []
+    if root.is_dir():
+        for path in root.glob("*.json"):
+            info = engine_store.read_json(path)
+            if not isinstance(info, dict):
+                continue
+            if not winproc.pid_alive(info.get("pid")):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                continue
+            candidates.append(info)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: str(item.get("started_at") or ""))
+
+
 def _loopback_origin(origin: str | None, port: int) -> bool:
     if not origin:
         return True
@@ -71,21 +98,26 @@ class LocalServer:
         self._thread = threading.Thread(target=self.httpd.serve_forever, name="morphd-api", daemon=True)
         self._thread.start()
         runtime = self.service.store.home / "runtime"
-        runtime.mkdir(parents=True, exist_ok=True)
-        engine_store.atomic_write_json(
-            runtime / "server.json",
-            {
-                "version": 1,
-                "app_version": self.service.status().get("app_version"),
-                "api_version": API_VERSION,
-                "port": self.httpd.server_address[1],
-                "url": self.url,
-                "base_url": self.base_url,
-                "host_token": self.host_token,
-                "pid": os.getpid(),
-                "started_at": self.started_at,
-            },
-        )
+        servers = runtime / "servers"
+        servers.mkdir(parents=True, exist_ok=True)
+        info = {
+            "version": 1,
+            "app_version": self.service.status().get("app_version"),
+            "api_version": API_VERSION,
+            "port": self.httpd.server_address[1],
+            "url": self.url,
+            "base_url": self.base_url,
+            "host_token": self.host_token,
+            "pid": os.getpid(),
+            "started_at": self.started_at,
+        }
+        self._server_file = servers / f"{os.getpid()}-{self.httpd.server_address[1]}.json"
+        engine_store.atomic_write_json(self._server_file, info)
+        try:
+            os.chmod(self._server_file, 0o600)
+        except OSError:
+            pass
+        engine_store.atomic_write_json(runtime / "server.json", info)
         try:
             os.chmod(runtime / "server.json", 0o600)
         except OSError:
@@ -94,6 +126,7 @@ class LocalServer:
         return self.url
 
     def stop(self) -> None:
+        own_url = self.url if self.httpd else ""
         if self.httpd:
             self.httpd.shutdown()
             self.httpd.server_close()
@@ -101,10 +134,24 @@ class LocalServer:
         if self._thread:
             self._thread.join(timeout=2)
             self._thread = None
-        try:
-            (self.service.store.home / "runtime" / "server.json").unlink()
-        except FileNotFoundError:
-            pass
+        runtime = self.service.store.home / "runtime"
+        own = getattr(self, "_server_file", None)
+        if own is not None:
+            try:
+                Path(own).unlink()
+            except FileNotFoundError:
+                pass
+        pointer = runtime / "server.json"
+        current = engine_store.read_json(pointer)
+        if isinstance(current, dict) and own_url and current.get("url") == own_url:
+            replacement = _newest_server(runtime / "servers")
+            if replacement is not None:
+                engine_store.atomic_write_json(pointer, replacement)
+            else:
+                try:
+                    pointer.unlink()
+                except FileNotFoundError:
+                    pass
         self.service.store.append_log("api_stopped")
 
     def check_bootstrap(self, token: str) -> bool:
@@ -294,16 +341,23 @@ class ApiHandler(BaseHTTPRequestHandler):
                 self._json(service.put_settings(self._body()))
                 return
         if parts == ["settings", "reset"] and method == "POST":
-            self._json(service.reset_settings())
+            self._json(service.reset_settings(confirm=_confirmed(self._body())))
             return
 
         if parts == ["providers"]:
+            if method == "DELETE":
+                payload = self._body()
+                self._json(service.providers_delete_all(confirm=_confirmed(payload)))
+                return
             if method == "GET":
                 self._json(service.providers_list())
                 return
             if method == "POST":
                 self._json(service.provider_add(self._body()), status=201)
                 return
+        if parts == ["providers", "catalog"] and method == "GET":
+            self._json(service.providers_catalog())
+            return
         if parts == ["providers", "test"] and method == "POST":
             payload = self._body()
             self._json(service.provider_test(None, payload))
@@ -321,17 +375,19 @@ class ApiHandler(BaseHTTPRequestHandler):
                 return
 
         if parts == ["hosts"] and method == "GET":
-            self._json({"hosts": service.hosts_discover()})
+            self._json(service.hosts_discover())
             return
         if parts == ["hosts", "discover"] and method == "POST":
-            self._json({"hosts": service.hosts_discover(force=True)})
+            self._json(service.hosts_discover(force=True))
             return
         if parts == ["hosts", "adapt"] and method == "POST":
-            self._json(service.hosts_adapt(self._body()), status=201)
+            payload = self._body()
+            self._json(service.hosts_adapt(payload, confirm=_confirmed(payload)), status=201)
             return
         if parts == ["hosts", "uninstall"] and method == "POST":
-            host = str(self._body().get("host") or "")
-            self._json(service.host_uninstall(host))
+            payload = self._body()
+            host = str(payload.get("host") or "")
+            self._json(service.host_uninstall(host, confirm=_confirmed(payload)))
             return
         if parts == ["hosts", "pick-folder"] and method == "POST":
             payload = self._body()
@@ -344,7 +400,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         if parts == ["sessions"] and method == "GET":
             limit = int((query.get("limit") or ["100"])[0])
             project_id = (query.get("project") or [None])[0]
-            self._json({"sessions": service.sessions_list(limit=limit, project_id=project_id)})
+            self._json(service.sessions_list(limit=limit, project_id=project_id))
             return
         if parts == ["sessions", "incognito"] and method == "POST":
             payload = self._body()
@@ -360,7 +416,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         if parts == ["jobs"] and method == "GET":
             state = (query.get("state") or [None])[0]
-            self._json({"jobs": service.jobs_list(state=state)})
+            self._json(service.jobs_list(state=state))
             return
         if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "cancel" and method == "POST":
             self._json(service.job_cancel(parts[1]))
@@ -369,19 +425,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         if parts == ["candidates"] and method == "GET":
             state = (query.get("state") or [None])[0]
             project_id = (query.get("project") or [None])[0]
-            self._json({"candidates": service.candidates_list(state=state, project_id=project_id)})
+            self._json(service.candidates_list(state=state, project_id=project_id))
             return
         if len(parts) == 3 and parts[0] == "candidates" and parts[2] in (
             "apply",
             "revert",
             "feedback",
         ) and method == "POST":
+            payload = self._body()
             if parts[2] == "apply":
-                self._json(service.candidate_apply(parts[1]))
+                self._json(service.candidate_apply(parts[1], confirm=_confirmed(payload)))
             elif parts[2] == "revert":
-                self._json(service.candidate_revert(parts[1]))
+                self._json(service.candidate_revert(parts[1], confirm=_confirmed(payload)))
             else:
-                self._json(service.candidate_feedback(parts[1], self._body()))
+                self._json(service.candidate_feedback(parts[1], payload))
             return
         if len(parts) == 3 and parts[0] == "candidates" and parts[2] == "diff" and method == "GET":
             diff = service.candidate_diff(parts[1])
@@ -417,7 +474,8 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._json(service.privacy_preview(str(payload.get("session_id") or "")))
             return
         if parts == ["privacy", "delete"] and method == "POST":
-            self._json(service.privacy_delete(self._body()))
+            payload = self._body()
+            self._json(service.privacy_delete(payload, confirm=_confirmed(payload)))
             return
         if parts == ["privacy", "export"] and method == "POST" and self._internal_token():
             self._json(service.privacy_export())
@@ -426,7 +484,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._json(service.privacy_export())
             return
         if len(parts) == 2 and parts[0] == "exports" and method == "GET":
-            self._download_export(parts[2])
+            self._download_export(parts[1])
             return
         if parts == ["privacy", "retention"] and method == "POST":
             self._json(service.privacy_retention())
@@ -436,11 +494,48 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._json(service.diagnostics())
             return
         if parts == ["diagnostics", "reset-learning"] and method == "POST":
-            self._json(service.reset_learning())
+            self._json(service.reset_learning(confirm=_confirmed(self._body())))
+            return
+        if parts == ["onboarding", "complete"] and method == "POST":
+            marker = service.store.home / "runtime" / "setup-complete"
+            engine_store.atomic_write_text(marker, engine_store.utc_now())
+            try:
+                os.chmod(marker, 0o600)
+            except OSError:
+                pass
+            self._json({"ok": True})
+            return
+
+        if parts == ["feedback", "respond"] and method == "POST":
+            payload = self._body()
+            self._json(
+                service.feedback_respond(
+                    str(payload.get("project_id") or ""), str(payload.get("reason") or "")
+                )
+            )
+            return
+
+        if parts == ["manual-projects"]:
+            if method == "GET":
+                self._json({"projects": service.manual_projects_list()})
+                return
+            if method == "POST":
+                self._json(service.manual_project_register(self._body()), status=201)
+                return
+        if len(parts) == 2 and parts[0] == "manual-projects" and method == "DELETE":
+            self._json(service.manual_project_delete(parts[1]))
+            return
+        if (
+            len(parts) == 3
+            and parts[0] == "manual-projects"
+            and parts[2] == "import"
+            and method == "POST"
+        ):
+            self._json(service.manual_project_import(parts[1]))
             return
 
         if parts == ["projects"] and method == "GET":
-            self._json({"projects": service.projects_list()})
+            self._json(service.projects_list())
             return
         if len(parts) == 2 and parts[0] == "projects":
             if method == "GET":

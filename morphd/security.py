@@ -34,19 +34,26 @@ DANGEROUS_CALLS = {
     "__import__",
     "os.system",
     "os.popen",
-    "os.execv",
-    "os.execve",
-    "os.execl",
-    "os.execlp",
-    "os.spawnl",
-    "os.spawnv",
     "os.remove",
     "os.unlink",
     "os.rmdir",
     "shutil.rmtree",
     "importlib.import_module",
 }
-NETWORK_CALL_PREFIXES = ("socket.", "requests.", "httpx.", "urllib.", "http.")
+PROCESS_CALL_PREFIXES = ("os.exec", "os.spawn", "os.posix_spawn")
+NETWORK_CALL_PREFIXES = ("socket.", "requests.", "httpx.", "urllib.", "http.", "aiohttp.", "websockets.")
+CREDENTIAL_PATH_MARKERS = (
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".kube",
+    ".docker",
+    ".password-store",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    ".git-credentials",
+)
 RISK_TERMS = re.compile(
     r"(?i)(danger-full-access|bypass[-_ ]?approvals|approval/policy|sandbox/mode|"
     r"settings\.json|hooks\.json|cordis\.patch\.yml)"
@@ -96,23 +103,26 @@ def scan_python(rel: str, source: str) -> list[str]:
             current = getattr(current, "parent", None)
         return True
 
+    def dangerous_module(name: str) -> bool:
+        if not name:
+            return False
+        if name in DANGEROUS_IMPORTS:
+            return True
+        root = name.split(".")[0]
+        return any(
+            name == item or name.startswith(item + ".")
+            for item in DANGEROUS_IMPORTS
+        ) or root in {"aiohttp", "ctypes", "ftplib", "http", "httpx", "paramiko", "pty", "requests", "socket", "subprocess", "telnetlib", "urllib", "websockets"}
+
     violations: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in DANGEROUS_IMPORTS or alias.name.split(".")[0] in {
-                    "socket",
-                    "subprocess",
-                    "ctypes",
-                }:
+                if dangerous_module(alias.name):
                     violations.append(f"{rel}:{node.lineno} imports dangerous module {alias.name!r}")
         elif isinstance(node, ast.ImportFrom):
             name = node.module or ""
-            if name in DANGEROUS_IMPORTS or name.split(".")[0] in {
-                "socket",
-                "subprocess",
-                "ctypes",
-            }:
+            if dangerous_module(name):
                 violations.append(f"{rel}:{node.lineno} imports dangerous module {name!r}")
             for alias in node.names:
                 if name in ("os", "shutil") and alias.name in {
@@ -137,8 +147,21 @@ def scan_python(rel: str, source: str) -> list[str]:
             call = _call_name(node)
             if call.rsplit(".", 1)[-1] in {"eval", "exec"}:
                 violations.append(f"{path_line} calls dynamic execution {call}()")
-            if call in DANGEROUS_CALLS or call.startswith(NETWORK_CALL_PREFIXES):
+            if (
+                call in DANGEROUS_CALLS
+                or call.startswith(NETWORK_CALL_PREFIXES)
+                or call.startswith(PROCESS_CALL_PREFIXES)
+            ):
                 violations.append(f"{path_line} calls {call}() — network/process/dynamic execution is not allowed")
+            if call.rsplit(".", 1)[-1] in {"read_text", "read_bytes", "open"}:
+                for literal in node.args[:2]:
+                    if isinstance(literal, ast.Constant) and isinstance(literal.value, str):
+                        value = literal.value.replace("\\", "/")
+                        if any(marker in value for marker in CREDENTIAL_PATH_MARKERS) or value.startswith(("/", "~")):
+                            violations.append(
+                                f"{path_line} reads a credential or absolute path ({literal.value!r}); "
+                                "candidates may not read outside their temporary workspace"
+                            )
             if call == "open" and len(node.args) >= 2 and module_scope(node):
                 mode = node.args[1]
                 if isinstance(mode, ast.Constant) and isinstance(mode.value, str) and any(
@@ -157,6 +180,17 @@ def scan_python(rel: str, source: str) -> list[str]:
             }:
                 violations.append(
                     f"{path_line} calls {call}() at module scope; module-level execution is not allowed"
+                )
+            if module_scope(node) and call.rsplit(".", 1)[-1] in {
+                "write_text",
+                "write_bytes",
+                "touch",
+            }:
+                # C.3.6: a Path write performed at import time is a module-scope side effect even
+                # when it is the value of an assignment (e.g. `p = Path("f").write_text(...)`).
+                violations.append(
+                    f"{path_line} writes to the filesystem ({call}()) at module scope; move "
+                    "side effects under `if __name__ == '__main__'`"
                 )
     for stmt in tree.body:
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
@@ -192,15 +226,18 @@ def scan_python(rel: str, source: str) -> list[str]:
     return sorted(set(violations))
 
 
-def scan_tree_contents(tree: dict[str, str]) -> ScanResult:
+def scan_tree_contents(tree: dict[str, str], base_tree: dict[str, str] | None = None) -> ScanResult:
     violations: list[str] = []
     findings: list[sanitize.SecretFinding] = []
+    base = base_tree or {}
     for rel, text in sorted(tree.items()):
-        if rel.endswith(".py"):
+        changed = rel not in base or base.get(rel) != text
+        before = base.get(rel, "")
+        if rel.endswith(".py") and changed:
             violations.extend(scan_python(rel, text))
         findings.extend(sanitize.scan_text(text, path=rel))
-        if RISK_TERMS.search(text) and rel not in {"AGENTS.md", "CLAUDE.md"}:
-            match = RISK_TERMS.search(text)
+        match = RISK_TERMS.search(text)
+        if match and changed and not RISK_TERMS.search(before):
             violations.append(
                 f"{rel}: references a controlled permission/config surface "
                 f"({match.group(0)!r}); candidates may not change execution policy"
@@ -262,6 +299,27 @@ def assert_no_leaks(
         for path in Path(workspace).rglob(glob):
             if path.is_file():
                 problems.append(f"workspace contains leak path {path.relative_to(workspace)}")
+    # Hidden answers must not leak into any workspace file, not just names matched by
+    # leak_globs. Scan text files with a bounded size to keep the check deterministic.
+    workspace_root = Path(workspace)
+    if workspace_root.is_dir():
+        for path in sorted(workspace_root.rglob("*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            try:
+                if path.stat().st_size > 1_000_000:
+                    continue
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if b"\x00" in data[:4096]:
+                continue
+            text = data.decode("utf-8", errors="replace")
+            leaked = sanitize.scan_forbidden_terms(text, terms)
+            if leaked:
+                problems.append(
+                    f"workspace file {path.relative_to(workspace_root)} exposes hidden criteria terms: {leaked}"
+                )
     if trajectory_text:
         found = sanitize.scan_forbidden_terms(trajectory_text, terms)
         if found:

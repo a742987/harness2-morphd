@@ -135,6 +135,18 @@ export function humanError(
       action: zh ? "检查网络与 Base URL；不会在后台反复重试。" : "Check the network and Base URL; harness2-morphd will not retry in the background.",
       money: zh ? "未发出请求时不会产生费用。" : "No cost if the request never reached the provider.",
     },
+    PROVIDER_CONTENT_REFUSED: {
+      what: zh ? "服务商以内容安全策略拒绝了请求。" : "The provider refused the request under its content policy.",
+      why: zh ? "请求内容触发了服务商的安全规则。" : "The request triggered the provider's safety rules.",
+      action: zh ? "调整项目内容或改用允许该内容的模型；不会偷偷换模型绕过。" : "Adjust the project content or use a model that allows it; morphd never silently swaps models to bypass a refusal.",
+      money: zh ? "被拒绝的请求可能仍按服务商规则计费。" : "A refused request may still be billed under the provider's rules.",
+    },
+    PROVIDER_INVALID_REQUEST: {
+      what: zh ? "模型服务拒绝了请求格式。" : "The model service rejected the request format.",
+      why: message,
+      action: zh ? "检查模型 ID、Base URL 与上下文窗口。" : "Check the model ID, Base URL, and context window.",
+      money: zh ? "请求被拒绝时不会写入候选。" : "A rejected request writes no candidate.",
+    },
     PROVIDER_NOT_CONFIGURED: {
       what: zh ? "还没有可用的递归模型。" : "No recursive model is configured.",
       why: zh ? "模型角色未选择，或 Key 已被删除。" : "No model role is assigned, or its key was deleted.",
@@ -154,9 +166,9 @@ export function humanError(
       money: zh ? "确认前不会启动分析，也不会产生费用。" : "No analysis starts before confirmation.",
     },
     HOST_NOT_FOUND: {
-      what: zh ? "没有找到可用的 Harness。" : "No supported Harness was found.",
+      what: zh ? "没有找到可用的 Agent 工具。" : "No supported agent tool was found.",
       why: zh ? "可执行文件不在 PATH 或常见目录。" : "The executable is not on PATH or in a common directory.",
-      action: zh ? "手动选择 Harness 安装目录或可执行文件。" : "Choose the Harness install folder or executable manually.",
+      action: zh ? "手动选择 Agent 工具的安装目录或可执行文件。" : "Choose the agent tool install folder or executable manually.",
       money: zh ? "发现与适配不调用模型，不产生费用。" : "Discovery and adaptation make no model calls.",
     },
     HOST_RUNNING: {
@@ -184,7 +196,7 @@ export function humanError(
       money: zh ? "这不会产生费用。" : "This costs nothing.",
     },
     CANDIDATE_STALE: {
-      what: zh ? "这条建议基于旧版本的 harness。" : "This suggestion is based on an older harness.",
+      what: zh ? "这条建议基于旧版本的 Agent 工作方式。" : "This suggestion is based on an older agent configuration.",
       why: zh ? "基线已变化，直接应用会覆盖其他改动。" : "The baseline changed; applying it could overwrite other edits.",
       action: zh ? "重新分析产生新建议，或查看历史对比。" : "Analyze again for a new suggestion, or compare history.",
       money: zh ? "这不会产生费用。" : "This costs nothing.",

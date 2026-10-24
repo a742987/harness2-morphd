@@ -9,7 +9,6 @@ import {
   PageHeader,
   Progress,
   Section,
-  Select,
   Toggle,
 } from "../components/UI";
 import { formatMoney, timeAgo, useL, useLang } from "../i18n";
@@ -34,9 +33,10 @@ export function Budget() {
     if (saved) await app.refreshAll(true);
   };
 
-  const recent = app.candidates
-    .filter((candidate) => Number(candidate.cost_usd) > 0)
-    .slice(0, 8);
+  const costed = app.candidates.filter((candidate) => Number(candidate.cost_usd) > 0);
+  const recent = costed.slice(0, 8);
+  const lastSpend = recent[0]?.cost_usd || 0;
+  const analysisCount = app.jobs.filter((job) => Number(job.cost_usd) > 0).length || costed.length;
 
   return (
     <>
@@ -87,7 +87,8 @@ export function Budget() {
           </p>
           <div className="row mt-8">
             <Badge>{l("提醒阈值", "Alert")} {Math.round((settings.budget.alert_ratio || 0.8) * 100)}%</Badge>
-            <Badge>{l("分析次数", "Analyses")} {recent.length}</Badge>
+            <Badge>{l("分析次数", "Analyses")} {analysisCount}</Badge>
+            <Badge>{l("最近一次", "Last")} {formatMoney(lastSpend, lang)}</Badge>
           </div>
         </div>
       </div>
@@ -132,18 +133,21 @@ export function Budget() {
           </Field>
         </div>
         <div className="grid-2 mt-16">
-          <Field label={l("预算提醒", "Budget alert")} hint={l("达到比例时在应用内提醒一次；不会发送系统通知。", "One in-app alert at this ratio; no system notification.")} htmlFor="budget-alert">
-            <Select
+          <Field label={l("预算提醒（0–100%）", "Budget alert (0–100%)")} hint={l("达到比例时在应用内提醒一次；不会发送系统通知。", "One in-app alert at this ratio; no system notification.")} htmlFor="budget-alert">
+            <Input
               id="budget-alert"
-              value={settings.budget.alert_ratio}
-              onChange={(event) => void save({ alert_ratio: Number(event.target.value) })}
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round((settings.budget.alert_ratio || 0) * 100)}
+              onChange={(event) =>
+                void save({
+                  alert_ratio: Math.max(0, Math.min(100, Number(event.target.value) || 0)) / 100,
+                })
+              }
               disabled={busy}
-            >
-              <option value={0.5}>50%</option>
-              <option value={0.8}>80%</option>
-              <option value={0.9}>90%</option>
-              <option value={1}>100%</option>
-            </Select>
+            />
           </Field>
           <Toggle
             checked={settings.budget.confirm_before_analysis}

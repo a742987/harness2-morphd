@@ -1,16 +1,22 @@
 [CmdletBinding()]
 param(
-    [string]$Python = ".venv-win\Scripts\python.exe",
+    [string]$Python = "",
     [string]$OutDir = "dist"
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot\release_utils.ps1"
+. "$PSScriptRoot\sign_utils.ps1"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-$pythonPath = Join-Path $root $Python
-if (-not (Test-Path $pythonPath)) {
-    throw "Windows Python was not found at $pythonPath. Create .venv-win first."
+$pythonPath = Resolve-PythonInterpreter -Root $root -Explicit $Python
+if (-not $pythonPath) {
+    throw "Python 3.12/3.13 was not found. Set MORPHD_PYTHON or create .venv-win."
+}
+$pythonVersion = Get-PythonVersionLabel -Interpreter $pythonPath
+if (-not $pythonVersion -or $pythonVersion -notmatch '^3\.1[23]\.') {
+    throw "Python 3.12/3.13 is required; found $pythonVersion at $pythonPath."
 }
 
 $webui = Join-Path $root "morphd\consumer\webui"
@@ -52,6 +58,7 @@ $arguments = @(
     "--collect-data", "jsonschema",
     "--hidden-import", "zstandard",
     "--hidden-import", "cryptography",
+    "--hidden-import", "morphd.byok_proposer",
     $entry
 )
 
@@ -64,5 +71,7 @@ $engine = Join-Path $root (Join-Path $OutDir "morphd-engine.exe")
 if (-not (Test-Path $engine)) {
     throw "Engine was not produced at $engine"
 }
+Invoke-AuthenticodeSign -Path $engine -Description "harness2-morphd engine" | Out-Null
+
 $size = [math]::Round((Get-Item $engine).Length / 1MB, 1)
 Write-Host "engine: $engine ($size MB)"

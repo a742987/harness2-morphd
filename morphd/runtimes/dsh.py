@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import _upstream, approvals, budget, config, metrics, pricing, store, winproc
 from ..contract import TaskContract, TaskStore
-from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult
+from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult, truncate_marked
 from .base import RuntimeError_
 
 HT = _upstream.core("tree")
@@ -284,23 +284,23 @@ def render_session_events(
             text = _message_text(message)
             if text:
                 if isinstance(source, dict) and source.get("kind") == "user":
-                    lines.append(f"[USER] {_clip(text, obs_trunc)}")
+                    lines.append(f"[USER] {truncate_marked(text, obs_trunc)}")
                 else:
-                    lines.append(f"[HARNESS] {_clip(text, obs_trunc)}")
+                    lines.append(f"[HARNESS] {truncate_marked(text, obs_trunc)}")
         elif etype == "assistant/message":
             message = data.get("message") or {}
             text = _message_text(message)
             if text:
-                lines.append(f"[ASSISTANT] {_clip(text, obs_trunc)}")
+                lines.append(f"[ASSISTANT] {truncate_marked(text, obs_trunc)}")
         elif etype == "tool/call":
             name = data.get("name") or "tool"
             args = data.get("arguments") or ""
-            lines.append(f"[ACTION] {name}: {_clip(args, args_trunc)}")
+            lines.append(f"[ACTION] {name}: {truncate_marked(args, args_trunc)}")
         elif etype == "tool/result":
             message = data.get("message") or {}
             text = _message_text(message)
             error = " ERROR" if message.get("isError") else ""
-            lines.append(f"[OBSERVATION{error}] {_clip(text, obs_trunc)}")
+            lines.append(f"[OBSERVATION{error}] {truncate_marked(text, obs_trunc)}")
         elif etype == "turn/end":
             reason = data.get("reason") or {}
             kind = reason.get("kind") if isinstance(reason, dict) else reason
@@ -309,6 +309,12 @@ def render_session_events(
             lines.append(f"[HARNESS] approval {data.get('outcome')}")
         elif etype in {"assistant/attempt"}:
             lines.append("[HARNESS] attempt without a committed message")
+        elif etype in {"session", "step/end"}:
+            continue  # known control events that carry no trajectory content
+        else:
+            # C.3.7: an unrecognized dsh event must be recorded and degraded, never silently
+            # dropped (that would turn a real trajectory into an empty one).
+            lines.append(f"[ERROR] unrecognized dsh event: {etype!r}")
     rendered = "\n".join(lines).strip()
     return rendered or "(no parseable events in session log)"
 

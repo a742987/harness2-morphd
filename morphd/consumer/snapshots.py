@@ -9,7 +9,7 @@ from pathlib import Path
 from .. import store as engine_store
 from .errors import ConsumerError
 from .hosts import HostManager
-from .settings import ProjectManager
+from .settings import ProjectManager, SettingsManager
 from .store import ConsumerStore
 from .util import new_id, tree_hashes
 
@@ -65,7 +65,14 @@ class SnapshotManager:
             "hashes": tree_hashes(Path(backup_root / "files")),
         }
         self.store.write_record("snapshots", snapshot_id, manifest)
-        self._prune(project["id"], keep=10)
+        keep = int(
+            SettingsManager(self.store)
+            .load()
+            .get("privacy", {})
+            .get("snapshot_limit", 10)
+            or 10
+        )
+        self._prune(project["id"], keep=max(5, keep))
         self.store.append_log(
             "snapshot_created", snapshot_id=snapshot_id, host=kind, reason=reason, files=len(entries)
         )

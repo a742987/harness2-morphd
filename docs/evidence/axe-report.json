@@ -1,0 +1,669 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-24T09:28:35.652Z",
+  "command": "npm --prefix consumer/web run test:visual:matrix",
+  "passed": true,
+  "fatal": "",
+  "environment": {
+    "platform": "win32 x64",
+    "node": "v24.12.0",
+    "edge": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  },
+  "server": {
+    "url": "http://127.0.0.1:11928/",
+    "app_version": "0.5.0"
+  },
+  "axe": {
+    "version": "4.14.0",
+    "totals": {
+      "serious": 0,
+      "critical": 0,
+      "moderate": 0,
+      "minor": 0,
+      "unknown": 0,
+      "scans": 35
+    }
+  },
+  "screenshots": [
+    {
+      "name": "onboarding-host-light",
+      "file": "docs/evidence/ui/onboarding-host-light.png",
+      "state": "Onboarding · find host · blank temporary home",
+      "scan": "onboarding-host-light"
+    },
+    {
+      "name": "onboarding-model-light",
+      "file": "docs/evidence/ui/onboarding-model-light.png",
+      "state": "Onboarding · recursive model",
+      "scan": "onboarding-model-light"
+    },
+    {
+      "name": "onboarding-budget-light",
+      "file": "docs/evidence/ui/onboarding-budget-light.png",
+      "state": "Onboarding · budget and privacy",
+      "scan": "onboarding-budget-light"
+    },
+    {
+      "name": "home-light",
+      "file": "docs/evidence/ui/home-light.png",
+      "state": "home · light · 100%",
+      "scan": "home-light"
+    },
+    {
+      "name": "hosts-light",
+      "file": "docs/evidence/ui/hosts-light.png",
+      "state": "hosts · light · 100%",
+      "scan": "hosts-light"
+    },
+    {
+      "name": "models-light",
+      "file": "docs/evidence/ui/models-light.png",
+      "state": "models · light · 100%",
+      "scan": "models-light"
+    },
+    {
+      "name": "learning-light",
+      "file": "docs/evidence/ui/learning-light.png",
+      "state": "learning · light · 100%",
+      "scan": "learning-light"
+    },
+    {
+      "name": "budget-light",
+      "file": "docs/evidence/ui/budget-light.png",
+      "state": "budget · light · 100%",
+      "scan": "budget-light"
+    },
+    {
+      "name": "history-light",
+      "file": "docs/evidence/ui/history-light.png",
+      "state": "history · light · 100%",
+      "scan": "history-light"
+    },
+    {
+      "name": "privacy-light",
+      "file": "docs/evidence/ui/privacy-light.png",
+      "state": "privacy · light · 100%",
+      "scan": "privacy-light"
+    },
+    {
+      "name": "diagnostics-light",
+      "file": "docs/evidence/ui/diagnostics-light.png",
+      "state": "diagnostics · light · 100%",
+      "scan": "diagnostics-light"
+    },
+    {
+      "name": "help-light",
+      "file": "docs/evidence/ui/help-light.png",
+      "state": "help · light · 100%",
+      "scan": "help-light"
+    },
+    {
+      "name": "advanced-light",
+      "file": "docs/evidence/ui/advanced-light.png",
+      "state": "advanced · light · 100%",
+      "scan": "advanced-light"
+    },
+    {
+      "name": "home-dark",
+      "file": "docs/evidence/ui/home-dark.png",
+      "state": "home · dark · 100%",
+      "scan": "home-dark"
+    },
+    {
+      "name": "hosts-dark",
+      "file": "docs/evidence/ui/hosts-dark.png",
+      "state": "hosts · dark · 100%",
+      "scan": "hosts-dark"
+    },
+    {
+      "name": "models-dark",
+      "file": "docs/evidence/ui/models-dark.png",
+      "state": "models · dark · 100%",
+      "scan": "models-dark"
+    },
+    {
+      "name": "learning-dark",
+      "file": "docs/evidence/ui/learning-dark.png",
+      "state": "learning · dark · 100%",
+      "scan": "learning-dark"
+    },
+    {
+      "name": "budget-dark",
+      "file": "docs/evidence/ui/budget-dark.png",
+      "state": "budget · dark · 100%",
+      "scan": "budget-dark"
+    },
+    {
+      "name": "history-dark",
+      "file": "docs/evidence/ui/history-dark.png",
+      "state": "history · dark · 100%",
+      "scan": "history-dark"
+    },
+    {
+      "name": "privacy-dark",
+      "file": "docs/evidence/ui/privacy-dark.png",
+      "state": "privacy · dark · 100%",
+      "scan": "privacy-dark"
+    },
+    {
+      "name": "diagnostics-dark",
+      "file": "docs/evidence/ui/diagnostics-dark.png",
+      "state": "diagnostics · dark · 100%",
+      "scan": "diagnostics-dark"
+    },
+    {
+      "name": "help-dark",
+      "file": "docs/evidence/ui/help-dark.png",
+      "state": "help · dark · 100%",
+      "scan": "help-dark"
+    },
+    {
+      "name": "advanced-dark",
+      "file": "docs/evidence/ui/advanced-dark.png",
+      "state": "advanced · dark · 100%",
+      "scan": "advanced-dark"
+    },
+    {
+      "name": "home-125",
+      "file": "docs/evidence/ui/home-125.png",
+      "state": "home · light · 125% DPI",
+      "scan": "home-125"
+    },
+    {
+      "name": "home-150",
+      "file": "docs/evidence/ui/home-150.png",
+      "state": "home · light · 150% DPI",
+      "scan": "home-150"
+    },
+    {
+      "name": "hosts-125",
+      "file": "docs/evidence/ui/hosts-125.png",
+      "state": "hosts · light · 125% DPI",
+      "scan": "hosts-125"
+    },
+    {
+      "name": "hosts-150",
+      "file": "docs/evidence/ui/hosts-150.png",
+      "state": "hosts · light · 150% DPI",
+      "scan": "hosts-150"
+    },
+    {
+      "name": "history-125",
+      "file": "docs/evidence/ui/history-125.png",
+      "state": "history · light · 125% DPI",
+      "scan": "history-125"
+    },
+    {
+      "name": "history-150",
+      "file": "docs/evidence/ui/history-150.png",
+      "state": "history · light · 150% DPI",
+      "scan": "history-150"
+    },
+    {
+      "name": "models-125",
+      "file": "docs/evidence/ui/models-125.png",
+      "state": "models · light · 125% DPI",
+      "scan": "models-125"
+    },
+    {
+      "name": "models-150",
+      "file": "docs/evidence/ui/models-150.png",
+      "state": "models · light · 150% DPI",
+      "scan": "models-150"
+    },
+    {
+      "name": "home-mobile",
+      "file": "docs/evidence/ui/home-mobile.png",
+      "state": "home · light · mobile 375px",
+      "scan": "home-mobile"
+    },
+    {
+      "name": "home-xl-high",
+      "file": "docs/evidence/ui/home-xl-high.png",
+      "state": "home · light · xlarge font + high contrast",
+      "scan": "home-xl-high"
+    },
+    {
+      "name": "candidate-modal-light",
+      "file": "docs/evidence/ui/candidate-modal-light.png",
+      "state": "candidate modal · light",
+      "scan": "candidate-modal-light"
+    },
+    {
+      "name": "candidate-modal-dark",
+      "file": "docs/evidence/ui/candidate-modal-dark.png",
+      "state": "candidate modal · dark",
+      "scan": "candidate-modal-dark"
+    },
+    {
+      "name": "keyboard-nav-focus",
+      "file": "docs/evidence/ui/keyboard-nav-focus.png",
+      "state": "keyboard · focused primary navigation",
+      "scan": ""
+    },
+    {
+      "name": "candidate-modal-keyboard",
+      "file": "docs/evidence/ui/candidate-modal-keyboard.png",
+      "state": "keyboard · candidate modal opened with Enter",
+      "scan": ""
+    },
+    {
+      "name": "keyboard-revert-confirm",
+      "file": "docs/evidence/ui/keyboard-revert-confirm.png",
+      "state": "keyboard · revert confirmation before actual restore",
+      "scan": ""
+    }
+  ],
+  "scans": [
+    {
+      "name": "onboarding-host-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "onboarding-model-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "onboarding-budget-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "home-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "hosts-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "hosts · morphd",
+      "violations": []
+    },
+    {
+      "name": "models-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "models · morphd",
+      "violations": []
+    },
+    {
+      "name": "learning-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "learning · morphd",
+      "violations": []
+    },
+    {
+      "name": "budget-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "budget · morphd",
+      "violations": []
+    },
+    {
+      "name": "history-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "history · morphd",
+      "violations": []
+    },
+    {
+      "name": "privacy-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "privacy · morphd",
+      "violations": []
+    },
+    {
+      "name": "diagnostics-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "diagnostics · morphd",
+      "violations": []
+    },
+    {
+      "name": "help-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "help · morphd",
+      "violations": []
+    },
+    {
+      "name": "advanced-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "advanced · morphd",
+      "violations": []
+    },
+    {
+      "name": "home-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "hosts-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "hosts · morphd",
+      "violations": []
+    },
+    {
+      "name": "models-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "models · morphd",
+      "violations": []
+    },
+    {
+      "name": "learning-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "learning · morphd",
+      "violations": []
+    },
+    {
+      "name": "budget-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "budget · morphd",
+      "violations": []
+    },
+    {
+      "name": "history-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "history · morphd",
+      "violations": []
+    },
+    {
+      "name": "privacy-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "privacy · morphd",
+      "violations": []
+    },
+    {
+      "name": "diagnostics-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "diagnostics · morphd",
+      "violations": []
+    },
+    {
+      "name": "help-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "help · morphd",
+      "violations": []
+    },
+    {
+      "name": "advanced-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "advanced · morphd",
+      "violations": []
+    },
+    {
+      "name": "home-125",
+      "page": "",
+      "theme": "light",
+      "viewport": "1152x880",
+      "scale": 1.25,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "home-150",
+      "page": "",
+      "theme": "light",
+      "viewport": "960x733",
+      "scale": 1.5,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "hosts-125",
+      "page": "",
+      "theme": "light",
+      "viewport": "1152x880",
+      "scale": 1.25,
+      "title": "hosts · morphd",
+      "violations": []
+    },
+    {
+      "name": "hosts-150",
+      "page": "",
+      "theme": "light",
+      "viewport": "960x733",
+      "scale": 1.5,
+      "title": "hosts · morphd",
+      "violations": []
+    },
+    {
+      "name": "history-125",
+      "page": "",
+      "theme": "light",
+      "viewport": "1152x880",
+      "scale": 1.25,
+      "title": "history · morphd",
+      "violations": []
+    },
+    {
+      "name": "history-150",
+      "page": "",
+      "theme": "light",
+      "viewport": "960x733",
+      "scale": 1.5,
+      "title": "history · morphd",
+      "violations": []
+    },
+    {
+      "name": "models-125",
+      "page": "",
+      "theme": "light",
+      "viewport": "1152x880",
+      "scale": 1.25,
+      "title": "models · morphd",
+      "violations": []
+    },
+    {
+      "name": "models-150",
+      "page": "",
+      "theme": "light",
+      "viewport": "960x733",
+      "scale": 1.5,
+      "title": "models · morphd",
+      "violations": []
+    },
+    {
+      "name": "home-mobile",
+      "page": "",
+      "theme": "light",
+      "viewport": "375x900",
+      "scale": 2,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "home-xl-high",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "candidate-modal-light",
+      "page": "",
+      "theme": "light",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    },
+    {
+      "name": "candidate-modal-dark",
+      "page": "",
+      "theme": "dark",
+      "viewport": "1440x1100",
+      "scale": 1,
+      "title": "morphd",
+      "violations": []
+    }
+  ],
+  "keyboard": [
+    {
+      "id": "skip-link",
+      "label": "Skip link is the first Tab stop with a visible ring",
+      "ok": true,
+      "detail": "跳到主要内容; outline 2px; shadow rgb(118, 185, 0) 0px 0px 0px 2px",
+      "evidence": ""
+    },
+    {
+      "id": "nav-reachability",
+      "label": "All 10 primary navigation items are Tab-reachable",
+      "ok": true,
+      "detail": "10/10 reached: 首页 → 宿主 → 模型 → 学习 → 预算 → 历史1 → 隐私 → 诊断 → 帮助 → 高级",
+      "evidence": ""
+    },
+    {
+      "id": "nav-focus-ring",
+      "label": "Primary navigation shows a visible focus ring on every item",
+      "ok": true,
+      "detail": "10/10 items with outline+offset shadow; first: 首页",
+      "evidence": "docs/evidence/ui/keyboard-nav-focus.png"
+    },
+    {
+      "id": "nav-activation",
+      "label": "Enter activates the focused navigation item",
+      "ok": true,
+      "detail": "Focused 宿主/Hosts, then Enter; title is hosts · morphd",
+      "evidence": ""
+    },
+    {
+      "id": "candidate-action-reachable",
+      "label": "Candidate detail action is Tab-reachable with a visible ring",
+      "ok": true,
+      "detail": "查看改动与原因; 22 Tab stops; outline 2px; shadow rgb(118, 185, 0) 0px 0px 0px 2px",
+      "evidence": ""
+    },
+    {
+      "id": "candidate-modal-open",
+      "label": "Candidate modal opens by keyboard and receives focus",
+      "ok": true,
+      "detail": "focus is inside role=dialog",
+      "evidence": "docs/evidence/ui/candidate-modal-keyboard.png"
+    },
+    {
+      "id": "candidate-modal-trap",
+      "label": "Tab focus remains inside the candidate modal",
+      "ok": true,
+      "detail": "14 Tab presses stayed inside the dialog",
+      "evidence": ""
+    },
+    {
+      "id": "candidate-modal-close",
+      "label": "Escape closes the modal and returns focus to its trigger",
+      "ok": true,
+      "detail": "focus restored to: 查看改动与原因",
+      "evidence": ""
+    },
+    {
+      "id": "feedback-flow",
+      "label": "Feedback button can be activated by keyboard and is recorded",
+      "ok": true,
+      "detail": "有用; feedback reasons: useful",
+      "evidence": ""
+    },
+    {
+      "id": "pause-flow",
+      "label": "Pause can be triggered by keyboard",
+      "ok": true,
+      "detail": "focused 暂停 1 天; /api/status reports learning.paused=true",
+      "evidence": ""
+    },
+    {
+      "id": "resume-flow",
+      "label": "Resume can be triggered by keyboard",
+      "ok": true,
+      "detail": "focused 恢复学习; /api/status reports learning.paused=false",
+      "evidence": ""
+    },
+    {
+      "id": "incognito-flow",
+      "label": "Incognito can be enabled and cancelled by keyboard",
+      "ok": true,
+      "detail": "focused 下一次会话隐身, then 取消下一次隐身",
+      "evidence": ""
+    },
+    {
+      "id": "revert-flow",
+      "label": "Revert confirmation opens by keyboard and restores the snapshot",
+      "ok": true,
+      "detail": "card 4, revert 12; state=reverted; file restored=true",
+      "evidence": "docs/evidence/ui/keyboard-revert-confirm.png"
+    }
+  ],
+  "console_errors": [],
+  "page_errors": []
+}

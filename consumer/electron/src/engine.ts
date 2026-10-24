@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -42,15 +43,60 @@ export function homeDir(): string {
   return process.env.MORPHD_HOME?.trim() || join(homedir(), ".morphd");
 }
 
-export function readServer(home = homeDir()): ServerInfo | null {
-  const file = join(home, "runtime", "server.json");
-  if (!existsSync(file)) return null;
+function loopbackBase(url: string): boolean {
   try {
-    const payload = JSON.parse(readFileSync(file, "utf8")) as ServerInfo;
-    if (!payload.base_url || !payload.host_token) return null;
-    return payload;
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function validServer(payload: ServerInfo): boolean {
+  return Boolean(payload.base_url && payload.url && payload.host_token && loopbackBase(payload.base_url) && loopbackBase(payload.url));
+}
+
+export function readServer(home = homeDir()): ServerInfo | null {
+  const runtime = join(home, "runtime");
+  const pointer = join(runtime, "server.json");
+  try {
+    if (existsSync(pointer)) {
+      const payload = JSON.parse(readFileSync(pointer, "utf8")) as ServerInfo;
+      if (validServer(payload) && (payload.pid === undefined || processAlive(payload.pid))) return payload;
+    }
+  } catch {
+    /* stale pointer */
+  }
+  const servers = join(runtime, "servers");
+  if (!existsSync(servers)) return null;
+  try {
+    const candidates = readdirSync(servers)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => {
+        try {
+          return JSON.parse(readFileSync(join(servers, name), "utf8")) as ServerInfo;
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is ServerInfo => Boolean(item && validServer(item) && (item.pid === undefined || processAlive(item.pid))))
+      .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+    return candidates[0] || null;
   } catch {
     return null;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -99,9 +145,29 @@ export function findEngine(): EngineSpec {
   for (const candidate of bundledCandidates) {
     try {
       if (existsSync(candidate) && statSync(candidate).isFile()) {
+        const sums = join(bundledRoot, "engine", "SHA256SUMS");
+        if (!existsSync(sums)) {
+          if (process.env.MORPHD_ALLOW_UNVERIFIED_ENGINE !== "1") {
+            throw new Error("bundled engine checksum manifest is missing; refusing to run it");
+          }
+        } else {
+          const wanted = readFileSync(sums, "utf8")
+            .split(/\r?\n/u)
+            .map((line) => line.trim().split(/\s+/u))
+            .find(
+              (parts) =>
+                parts.length >= 2 &&
+                parts[parts.length - 1].replace(/^\.\//u, "") === "morphd-engine.exe",
+            );
+          const actual = createHash("sha256").update(readFileSync(candidate)).digest("hex");
+          if (!wanted || actual !== wanted[0].toLowerCase()) {
+            throw new Error("bundled engine checksum mismatch; refusing to run it");
+          }
+        }
         return { command: candidate, prefix: [] };
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("checksum")) throw error;
       /* ignore inaccessible candidates */
     }
   }
@@ -109,13 +175,24 @@ export function findEngine(): EngineSpec {
     const manifest = require.resolve(`${PLATFORM_PACKAGE}/package.json`);
     const pkg = JSON.parse(readFileSync(manifest, "utf8")) as { morphd?: { engine?: string } };
     if (pkg.morphd?.engine) {
-      const path = join(dirname(manifest), pkg.morphd.engine);
-      if (existsSync(path)) return { command: path, prefix: [] };
+      const file = join(dirname(manifest), pkg.morphd.engine);
+      if (existsSync(file)) {
+        verifyEngineChecksum(manifest, file, String(pkg.morphd.engine).replace(/\\/gu, "/"));
+        return { command: file, prefix: [] };
+      }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("engine checksum")) throw error;
     /* optional package not installed */
   }
   const explicitPython = process.env.MORPHD_PYTHON?.trim();
+  if (!explicitPython && process.env.MORPHD_ALLOW_PYTHON_ENGINE !== "1") {
+    throw new Error(
+      "No verified harness2-morphd engine found for Windows x64. " +
+        `Install ${PLATFORM_PACKAGE} or set MORPHD_ENGINE_BIN. ` +
+        "Python source fallback is development-only (MORPHD_ALLOW_PYTHON_ENGINE=1).",
+    );
+  }
   const candidates: EngineSpec[] = [
     ...(explicitPython ? [{ command: explicitPython, prefix: [] }] : []),
     { command: "python", prefix: [] },
@@ -135,6 +212,23 @@ export function findEngine(): EngineSpec {
       `Looked in ${bundledCandidates.join(", ")}. ` +
       `Install ${PLATFORM_PACKAGE} or set MORPHD_ENGINE_BIN.`,
   );
+}
+
+function verifyEngineChecksum(manifest: string, target: string, relative: string): void {
+  const sums = join(dirname(manifest), "SHA256SUMS");
+  if (!existsSync(sums)) {
+    if (process.env.MORPHD_ALLOW_UNVERIFIED_ENGINE === "1") return;
+    throw new Error("engine checksum manifest is missing; refusing to run the platform binary");
+  }
+  const wanted = readFileSync(sums, "utf8")
+    .split(/\r?\n/u)
+    .map((line) => line.trim().split(/\s+/u))
+    .find((parts) => parts.length >= 2 && parts[parts.length - 1].replace(/^\.\//u, "") === relative);
+  if (!wanted) throw new Error(`engine checksum entry missing for ${relative}`);
+  const actual = createHash("sha256").update(readFileSync(target)).digest("hex");
+  if (actual !== wanted[0].toLowerCase()) {
+    throw new Error(`engine checksum mismatch for ${relative}; refusing to run a modified platform binary`);
+  }
 }
 
 export function spawnEngine(args: string[], home = homeDir()): ChildProcess {
@@ -176,6 +270,7 @@ export async function api(
       "X-Morphd-Host-Token": info.host_token,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
   });
   const text = await response.text();
   const payload = text ? (JSON.parse(text) as Record<string, unknown>) : {};

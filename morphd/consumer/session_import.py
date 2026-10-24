@@ -131,6 +131,11 @@ class SessionContext:
     cost_usd: float | None = None
     source: str = ""
 
+    def __post_init__(self) -> None:
+        value = str(self.session_id or "").strip()
+        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", value):
+            self.session_id = "s_" + engine_store.sha256_text(value or "unknown")[:20]
+
     def to_dict(self) -> dict:
         return {
             "session_id": self.session_id,
@@ -342,6 +347,21 @@ def _claude_tool_loops(events: list[dict]) -> tuple[int, dict, list[dict]]:
     return loops, {"turns": user_turns}, trajectory
 
 
+CLAUDE_EVENT_TYPES = {
+    "system",
+    "assistant",
+    "user",
+    "result",
+    "error",
+    "stream_event",
+    "rate_limit_event",
+    "tool_progress",
+    "auth_status",
+    "control_request",
+    "control_response",
+}
+
+
 def ingest_claude(
     *,
     events_path: Path,
@@ -350,6 +370,13 @@ def ingest_claude(
     end_reason: str | None = None,
 ) -> SessionContext:
     events = _read_jsonl(Path(events_path))
+    unknown_events = sorted(
+        {
+            str(event.get("type") or "")
+            for event in events
+            if event.get("type") and str(event.get("type")) not in CLAUDE_EVENT_TYPES
+        }
+    )
     session_id = ""
     cwd = ""
     started = ""
@@ -412,8 +439,13 @@ def ingest_claude(
             "corrections": corrections,
             "tool_loops": loops,
             "failures": [] if reason == "completed" else ["failed-turn"],
+            "unknown_events": unknown_events,
+            "unsupported": bool(unknown_events),
         },
-        trajectory_summary="\n".join(trajectory),
+        trajectory_summary="\n".join(
+            trajectory
+            + (["[ERROR] unknown Claude events: " + ", ".join(unknown_events)] if unknown_events else [])
+        ),
         usage=usage,
         cost_usd=result.get("total_cost_usd") if isinstance(result, dict) else None,
         source=f"claude-session:{Path(events_path).name}",
@@ -567,17 +599,21 @@ def save_session(
     *,
     source_workspace: Path | None = None,
     session_workspace: Path | None = None,
+    include_content: bool = True,
 ) -> dict:
     """Persist a SessionRecord and its private workspace copy.
 
     Incognito is checked *before* this function is called; no record is written for an
-    incognito session.
+    incognito session. When pause/vacation is active the caller may request a metadata-only
+    record so the user can still see that a session happened without storing its content.
     """
     projects = ProjectManager(store)
     project_root = Path(context.project_root or context.workspace)
     project = projects.for_root(project_root)
-    turns, labels = _redact_turns(context.user_turns)
-    summary, traj_labels = sanitize.redact_text(context.trajectory_summary)
+    turns, labels = _redact_turns(context.user_turns) if include_content else ([], [])
+    summary, traj_labels = (
+        sanitize.redact_text(context.trajectory_summary) if include_content else ("", [])
+    )
     source = Path(source_workspace or context.workspace)
     target = session_workspace or (store.home / "sessions" / context.session_id / "workspace")
     redaction = {"removed_files": 0, "redacted_fields": sorted(set(labels + traj_labels))}
@@ -587,9 +623,9 @@ def save_session(
         "host": context.host,
         "project_id": project["id"],
         "project": str(project_root.resolve()),
-        "workspace": str(target),
-        "source_workspace": str(source),
-        "events_path": context.events_path,
+        "workspace": str(target) if include_content else "",
+        "source_workspace": str(source) if include_content else "",
+        "events_path": context.events_path if include_content else "",
         "started_at": context.started_at or _now(),
         "ended_at": context.ended_at or _now(),
         "end_reason": context.end_reason,
@@ -600,6 +636,7 @@ def save_session(
         },
         "user_turns": turns,
         "trajectory_summary": summary,
+        "content_recorded": bool(include_content),
         "usage": context.usage,
         "cost_usd": context.cost_usd,
         "status": "recorded",

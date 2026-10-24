@@ -8,10 +8,10 @@ Scheduler entry, daemon, cron, or cloud queue.
 
 ### Electron desktop (recommended for end users)
 
-- Install `harness2-morphd-<version>-win-x64-setup.exe` (per-user NSIS) or run the portable
-  `.exe`. No administrator rights are required.
-- The installer and engine are **not Authenticode-signed** in the current release; Windows may
-  show a SmartScreen warning.
+- Install `harness2-morphd Setup <version>.exe` (per-user NSIS) or run the portable
+  `harness2-morphd <version>.exe`. No administrator rights are required.
+- Installers and the engine are **unsigned unless the release was built with Authenticode
+  certificate secrets**; unsigned builds may show a SmartScreen warning.
 - The desktop shell loads the local UI from the host server. The tray appears only while the
   host is running; closing the window hides to tray by default.
 - `--config-only` has no tray and quits when the window closes.
@@ -24,11 +24,13 @@ npx @harness2-morphd/cli@latest doctor
 ```
 
 - Node `>=20`; the launcher does not use `sudo`, `curl | sh`, or arbitrary postinstall scripts.
-- The engine comes from `@harness2-morphd/win32-x64`, an explicit `MORPHD_ENGINE_BIN`, or a
-  development Python install. Missing platform packages produce an actionable error and are
-  never downloaded from an arbitrary URL.
-- `setup` adapts the host and opens the three-step guide. Close the temporary installer UI with
-  Ctrl+C after the guide; it is not resident.
+- The engine comes from the SHA-256-verified `@harness2-morphd/win32-x64` package or an explicit
+  `MORPHD_ENGINE_BIN`. Python source is development-only (`MORPHD_ALLOW_PYTHON_ENGINE=1`).
+  Missing platform packages produce an actionable error and are never downloaded from an
+  arbitrary URL.
+- `setup` adapts the host and opens the three-step guide. Finishing the guide closes the
+  temporary installer UI; it is not resident. If no host is found, the UI still opens so you
+  can select a folder manually.
 
 ### Source / development
 
@@ -40,6 +42,21 @@ npm --prefix consumer/web install
 npm --prefix consumer/web run build
 morphd setup --host dsh --project C:\path\to\project
 ```
+
+### Release build and verification
+
+```powershell
+npm run release                 # verify + engine, npm tarballs, installers, SBOM, checksums
+npm run verify:release          # local unsigned build (signing status is explicit)
+npm run verify:release:signed   # require Authenticode verification
+```
+
+- The GitHub workflow only releases tags equal to `v<package.json version>` and checks every
+  package/Python version first.
+- Set `MORPHD_SIGN_CERT_BASE64` and `MORPHD_SIGN_PASSWORD` repository secrets to enable
+  Authenticode signing. Without them the release is explicitly unsigned.
+- GitHub flattens release asset paths, so the published `SHA256SUMS-windows.txt` uses
+  basenames. The local `release/` directory keeps relative paths for its own verification.
 
 ## 2. First configuration
 

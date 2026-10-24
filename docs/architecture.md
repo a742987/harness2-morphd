@@ -33,7 +33,10 @@ Tray helper / Electron tray ── host lifecycle ──> disappears with the ho
 
 - The UI server, job runner, watchers and tray helper exist **only while the host server is
   alive**. `HostRuntime.stop()` closes the HTTP port, stops the worker, writes checkpoints and
-  removes `runtime/server.json`.
+  removes its own `runtime/servers/*.json` plus the `server.json` pointer when it owns it.
+- Multiple hosts may each run a local server against the same store. A single elected worker
+  (`runtime/workers/`) processes the shared job queue, and one NPM tray helper is elected via
+  `runtime/tray.pid`; both hand over when the current owner exits.
 - `morphd host run --host <kind> --binary <real> -- <args>` starts the service, prints the UI URL
   to stderr, launches the real host, and waits. On host exit it ingests the latest session,
   pauses jobs and stops the service. It never detaches or retries in the background.
@@ -53,11 +56,12 @@ Tray helper / Electron tray ── host lifecycle ──> disappears with the ho
 Discovery only checks:
 
 1. `PATH` executables;
-2. npm global locations;
+2. npm/pnpm/yarn global locations (including `PNPM_HOME`);
 3. common install directories;
-4. common config directories and explicit env vars (`DSH_HOME`, `CLAUDE_CONFIG_DIR`,
+4. Windows uninstall/App Paths registry entries (version/path metadata only);
+5. common config directories and explicit env vars (`DSH_HOME`, `CLAUDE_CONFIG_DIR`,
    `CODEX_HOME`);
-5. existing install records.
+6. existing install records.
 
 It validates identity through `--version` output and config structure, not a directory name.
 Unsupported versions are listed but never written. Adaptation:
@@ -89,7 +93,11 @@ the first snapshot, pinned for "restore original harness".
   snapshots/<id>.json + snapshots/<id>/files/...
   logs/events.jsonl    # redacted, 100MB roll
   exports/
-  runtime/server.json  # user-private, random port + host token + UI URL
+  runtime/server.json  # newest live server: random port + host token + UI URL
+  runtime/servers/     # one private record per live host server (multi-host)
+  runtime/hosts/       # live host pid records used to block adaptation while running
+  runtime/workers/     # single-worker election records
+  runtime/tray.pid     # singleton NPM tray helper pid
   install.json
   _budget/consumer.jsonl
 ```

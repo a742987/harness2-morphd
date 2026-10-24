@@ -6,6 +6,7 @@ import type {
   HostCandidate,
   InstallRecord,
   JobRecord,
+  ManualProject,
   ProjectSettings,
   Provider,
   ProviderTestResult,
@@ -33,6 +34,14 @@ export class ApiError extends Error {
 
 let csrfToken = "";
 let connected = false;
+
+declare global {
+  interface Window {
+    morphd?: {
+      pickFolder?: (kind: string) => Promise<{ path?: string } | null>;
+    };
+  }
+}
 
 const TOKEN_KEY = "morphd.bootstrap";
 const CSRF_KEY = "morphd.csrf";
@@ -147,14 +156,24 @@ export const api = {
   status: () => request<Status>("GET", "/api/status"),
   settings: () => request<Settings>("GET", "/api/settings"),
   saveSettings: (settings: Partial<Settings>) => request<Settings>("PUT", "/api/settings", settings),
-  resetSettings: () => request<Settings>("POST", "/api/settings/reset", {}),
-  providers: () => request<ProvidersPayload>("GET", "/api/providers"),
+  resetSettings: () => request<Settings>("POST", "/api/settings/reset", { confirm: true }),
+  providers: async (): Promise<ProvidersPayload> => {
+    const [providers, catalog] = await Promise.all([
+      request<Provider[]>("GET", "/api/providers"),
+      request<Omit<ProvidersPayload, "providers">>("GET", "/api/providers/catalog"),
+    ]);
+    return { ...catalog, providers };
+  },
   addProvider: (payload: Record<string, unknown>) =>
     request<Provider>("POST", "/api/providers", payload),
   updateProvider: (id: string, payload: Record<string, unknown>) =>
     request<Provider>("PUT", `/api/providers/${encodeURIComponent(id)}`, payload),
   deleteProvider: (id: string) =>
     request<{ ok: boolean }>("DELETE", `/api/providers/${encodeURIComponent(id)}`),
+  deleteAllProviders: () =>
+    request<{ ok: boolean; deleted: number; ids: string[] }>("DELETE", "/api/providers", {
+      confirm: true,
+    }),
   testProvider: (id: string | null, payload: Record<string, unknown>) =>
     id
       ? request<ProviderTestResult>("POST", `/api/providers/${encodeURIComponent(id)}/test`, payload)
@@ -162,14 +181,32 @@ export const api = {
   vaultUnlock: (passphrase: string) =>
     request<{ vault_unlocked: boolean }>("POST", "/api/vault/unlock", { passphrase }),
   vaultLock: () => request<{ vault_unlocked: boolean }>("POST", "/api/vault/lock", {}),
-  hosts: () => request<{ hosts: HostCandidate[] }>("GET", "/api/hosts"),
-  discoverHosts: () => request<{ hosts: HostCandidate[] }>("POST", "/api/hosts/discover", {}),
+  hosts: () => request<HostCandidate[]>("GET", "/api/hosts"),
+  discoverHosts: () => request<HostCandidate[]>("POST", "/api/hosts/discover", {}),
   adaptHost: (payload: Record<string, unknown>) =>
-    request<InstallRecord>("POST", "/api/hosts/adapt", payload),
+    request<InstallRecord>("POST", "/api/hosts/adapt", { ...payload, confirm: true }),
   uninstallHost: (host: string) =>
-    request<{ ok: boolean }>("POST", "/api/hosts/uninstall", { host }),
-  pickFolder: (kind: string) =>
-    request<{ path: string }>("POST", "/api/hosts/pick-folder", { kind }),
+    request<{ ok: boolean }>("POST", "/api/hosts/uninstall", { host, confirm: true }),
+  pickFolder: async (kind: string) => {
+    const bridge = typeof window !== "undefined" ? window.morphd?.pickFolder : undefined;
+    if (bridge) {
+      const result = await bridge(kind);
+      return { path: String(result?.path || "") };
+    }
+    return request<{ path: string }>("POST", "/api/hosts/pick-folder", { kind });
+  },
+  manualProjects: () =>
+    request<{ projects: ManualProject[] }>("GET", "/api/manual-projects"),
+  addManualProject: (payload: Record<string, unknown>) =>
+    request<ManualProject>("POST", "/api/manual-projects", payload),
+  deleteManualProject: (id: string) =>
+    request<{ ok: boolean }>("DELETE", `/api/manual-projects/${encodeURIComponent(id)}`),
+  importManualProject: (id: string) =>
+    request<{ session: SessionRecord; source: string }>(
+      "POST",
+      `/api/manual-projects/${encodeURIComponent(id)}/import`,
+      {},
+    ),
   restoreOriginal: (host: string, projectRoot?: string) =>
     request<{ ok: boolean; snapshot_id: string }>("POST", "/api/hosts/restore-original", {
       host,
@@ -177,7 +214,7 @@ export const api = {
       confirm: true,
     }),
   sessions: (limit = 100, project?: string) =>
-    request<{ sessions: SessionRecord[] }>(
+    request<SessionRecord[]>(
       "GET",
       `/api/sessions?limit=${limit}${project ? `&project=${encodeURIComponent(project)}` : ""}`,
     ),
@@ -194,14 +231,14 @@ export const api = {
       session_id: sessionId,
     }),
   jobs: (state?: string) =>
-    request<{ jobs: JobRecord[] }>(
+    request<JobRecord[]>(
       "GET",
       `/api/jobs${state ? `?state=${encodeURIComponent(state)}` : ""}`,
     ),
   cancelJob: (id: string) =>
     request<JobRecord>("POST", `/api/jobs/${encodeURIComponent(id)}/cancel`, {}),
   candidates: (state?: string, project?: string) =>
-    request<{ candidates: Candidate[] }>(
+    request<Candidate[]>(
       "GET",
       `/api/candidates${state ? `?state=${encodeURIComponent(state)}` : ""}${
         project ? `${state ? "&" : "?"}project=${encodeURIComponent(project)}` : ""
@@ -217,6 +254,11 @@ export const api = {
     request<{ ok: boolean }>("POST", `/api/candidates/${encodeURIComponent(id)}/feedback`, {
       reason,
       note,
+    }),
+  respondFeedback: (projectId: string, reason: string) =>
+    request<{ ok: boolean }>("POST", "/api/feedback/respond", {
+      project_id: projectId,
+      reason,
     }),
   budget: (project?: string) =>
     request<BudgetNumbers>(
@@ -234,13 +276,16 @@ export const api = {
       `/api/privacy/preview?session_id=${encodeURIComponent(sessionId)}`,
     ),
   deleteData: (payload: Record<string, unknown>) =>
-    request<Record<string, unknown>>("POST", "/api/privacy/delete", payload),
+    request<Record<string, unknown>>("POST", "/api/privacy/delete", { ...payload, confirm: true }),
   exportData: () => request<{ path: string; bundle: Record<string, unknown> }>("GET", "/api/privacy/export"),
   retention: () => request<Record<string, number>>("POST", "/api/privacy/retention", {}),
   diagnostics: () => request<Diagnostics>("GET", "/api/diagnostics"),
-  projects: () => request<{ projects: ProjectSettings[] }>("GET", "/api/projects"),
+  projects: () => request<ProjectSettings[]>("GET", "/api/projects"),
   project: (id: string) => request<ProjectSettings>("GET", `/api/projects/${encodeURIComponent(id)}`),
   saveProject: (id: string, payload: Partial<ProjectSettings>) =>
     request<ProjectSettings>("PUT", `/api/projects/${encodeURIComponent(id)}`, payload),
-  resetLearning: () => request<Record<string, unknown>>("POST", "/api/diagnostics/reset-learning", {}),
+  resetLearning: () =>
+    request<Record<string, unknown>>("POST", "/api/diagnostics/reset-learning", { confirm: true }),
+  completeOnboarding: () =>
+    request<{ ok: boolean }>("POST", "/api/onboarding/complete", {}),
 };

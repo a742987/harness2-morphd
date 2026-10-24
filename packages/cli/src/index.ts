@@ -8,6 +8,7 @@
  * `python -m morphd`.
  */
 import { spawn, spawnSync, type SpawnOptions } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, release } from "node:os";
@@ -52,6 +53,31 @@ function platformPackage(): string {
   return PLATFORM_PACKAGE;
 }
 
+function verifyChecksum(packageJson: string, target: string, relative: string): void {
+  const sumsFile = join(dirname(packageJson), "SHA256SUMS");
+  if (!existsSync(sumsFile)) {
+    if (process.env.MORPHD_ALLOW_UNVERIFIED_ENGINE === "1") return;
+    fail(
+      `platform package is missing SHA256SUMS; refusing to run ${target}. Set MORPHD_ALLOW_UNVERIFIED_ENGINE=1 only in development.`,
+      "ENGINE_UNVERIFIED",
+    );
+  }
+  const wanted = readFileSync(sumsFile, "utf8")
+    .split(/\r?\n/u)
+    .map((line) => line.trim().split(/\s+/u))
+    .find((parts) => parts.length >= 2 && parts[parts.length - 1].replace(/^\.\//u, "") === relative);
+  if (!wanted) {
+    fail(`SHA256SUMS has no entry for ${relative}`, "ENGINE_UNVERIFIED");
+  }
+  const actual = createHash("sha256").update(readFileSync(target)).digest("hex");
+  if (actual !== wanted[0].toLowerCase()) {
+    fail(
+      `platform engine checksum mismatch for ${relative}; the package may be corrupted or tampered with.`,
+      "ENGINE_UNVERIFIED",
+    );
+  }
+}
+
 function engineFromPlatformPackage(): EngineCommand | null {
   const name = platformPackage();
   try {
@@ -62,10 +88,12 @@ function engineFromPlatformPackage(): EngineCommand | null {
     if (pkg.morphd?.engine) {
       const target = join(dirname(packageJson), pkg.morphd.engine);
       if (existsSync(target)) {
-        return { command: target, prefix: [], source: name };
+        verifyChecksum(packageJson, target, pkg.morphd.engine.replace(/\\/gu, "/"));
+        return { command: target, prefix: [], source: `${name} (sha256 verified)` };
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("morphd:")) throw error;
     /* optional package not installed for this platform */
   }
   return null;
@@ -73,6 +101,11 @@ function engineFromPlatformPackage(): EngineCommand | null {
 
 function pythonEngine(): EngineCommand | null {
   const explicit = process.env.MORPHD_PYTHON?.trim();
+  if (!explicit && process.env.MORPHD_ALLOW_PYTHON_ENGINE !== "1") {
+    // Production installs must use the verified platform binary. Python is a development
+    // fallback only when explicitly allowed, so consumers never silently run source code.
+    return null;
+  }
   const candidates: { command: string; prefix: string[] }[] = [
     ...(explicit ? [{ command: explicit, prefix: [] as string[] }] : []),
     { command: "python", prefix: [] },
@@ -225,7 +258,11 @@ function cmdSetup(args: string[]): number {
   const noUi = rest.includes("--no-ui");
   const filtered = rest.filter((item) => item !== "--no-ui");
   process.stderr.write(`morphd: engine ${engine.source}\n`);
-  const status = runEngine(engine, ["setup", ...filtered], { env: engineEnv(home) });
+  const status = runEngine(
+    engine,
+    ["setup", ...filtered, ...(noUi ? [] : ["--allow-no-host"])],
+    { env: engineEnv(home) },
+  );
   if (status !== 0) return status;
   if (noUi) {
     process.stdout.write("morphd: setup complete. Start the UI with `morphd serve --open`.\n");
@@ -233,9 +270,11 @@ function cmdSetup(args: string[]): number {
   }
   process.stdout.write(
     "morphd: setup complete. Opening the local UI for the three-step guide.\n" +
-      "        Finish the guide, then press Ctrl+C to close the temporary installer UI.\n",
+      "        The temporary installer UI exits when the guide is finished.\n",
   );
-  return runEngine(engine, ["serve", "--config-only", "--open"], { env: engineEnv(home) });
+  return runEngine(engine, ["serve", "--config-only", "--open", "--exit-on-setup"], {
+    env: engineEnv(home),
+  });
 }
 
 function cmdDoctor(args: string[]): number {
@@ -278,8 +317,20 @@ function cmdUpdate(args: string[]): number {
   }
   process.stdout.write(`morphd ${VERSION} → ${latest} is available.\n`);
   process.stdout.write("This launcher never updates silently. Review the release notes first.\n");
+  const global = spawnSync(npm, ["ls", "-g", "@harness2-morphd/cli", "--depth=0"], {
+    encoding: "utf8",
+    timeout: 30000,
+  });
+  const isGlobal = global.status === 0;
+  if (!isGlobal) {
+    process.stdout.write(
+      "This copy is running through npx and leaves no global package. " +
+        `Re-run \`npx @harness2-morphd/cli@${latest} setup\` to use the new version.\n`,
+    );
+    return 0;
+  }
   if (!yes) {
-    process.stdout.write("Run with --yes to install the global update, or use `npx @harness2-morphd/cli@latest`.\n");
+    process.stdout.write("Run with --yes to install the global update.\n");
     return 0;
   }
   const install = spawnSync(npm, ["install", "-g", `@harness2-morphd/cli@${latest}`], {

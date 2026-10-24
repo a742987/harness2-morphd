@@ -47,7 +47,7 @@ def runtime_fingerprint(settings: Settings, runtime: str) -> str:
             if runtime == "claude-code"
             else config.DSH_SANDBOX_MODE
             if runtime == "dsh"
-            else "bypass"
+            else "workspace-write"
         ),
         "approver_tools": settings.approver_tools,
         "approver_deny": settings.approver_deny,

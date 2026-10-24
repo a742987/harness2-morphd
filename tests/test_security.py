@@ -55,6 +55,18 @@ def test_scan_python_rejects_dangerous_surfaces():
     assert security.scan_python("scripts/x.py", safe) == []
 
 
+def test_scan_python_flags_module_scope_file_writes():
+    # C.3.6: a file write performed at import time is a module-scope side effect even when it
+    # is the value of an assignment, not a bare expression.
+    assert security.scan_python("scripts/x.py", "from pathlib import Path\np = Path('f').write_text('x')\n")
+    assert security.scan_python("scripts/x.py", "from pathlib import Path\nPath('f').touch()\n")
+    # The same write inside a function (executed under __main__) stays allowed.
+    assert security.scan_python(
+        "scripts/x.py",
+        "from pathlib import Path\n\ndef go():\n    Path('f').write_text('x')\n",
+    ) == []
+
+
 def test_validate_tree_rejects_offsurface_and_hooks(env):
     adapter = _adapter(env)
     base = adapter._ht.read_tree(adapter.substrate.surface(), adapter.base_harness())
@@ -131,3 +143,24 @@ def test_egress_and_container_are_fail_closed(monkeypatch):
     monkeypatch.setenv("MORPHD_EGRESS_ALLOWLIST", "api.example.com")
     detail = security.require_isolation(enabled=True)
     assert detail["egress_allowlist"] == ["api.example.com"]
+
+
+def test_scan_python_rejects_nested_network_imports_and_credential_reads():
+    for source in (
+        "import urllib.error\n",
+        "import requests.adapters\n",
+        "import aiohttp.client\n",
+        "import os\nos.execvp('x', [])\n",
+        "from pathlib import Path\nPath('~/.ssh/id_rsa').read_text()\n",
+    ):
+        assert security.scan_python("scripts/x.py", source), source
+
+
+def test_hidden_terms_are_rejected_inside_workspace_files(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "notes.txt").write_text("the hidden answer is answer-42\n", encoding="utf-8")
+    problems = security.assert_no_leaks(
+        ["answer-42"], "solve it", workspace, "", leak_globs=()
+    )
+    assert any("answer-42" in item for item in problems)

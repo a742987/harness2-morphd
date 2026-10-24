@@ -16,6 +16,25 @@
   hosts.
 - PowerShell build/release pipeline: PyInstaller engine, SHA256SUMS, npm pack, Electron
   NSIS/portable installers and a combined checksum file.
+- Dangerous writes (`apply`, `revert`, adapt/uninstall, delete/reset, provider delete-all)
+  require an explicit `confirm: true` in the local API.
+- Single-worker election and a singleton tray helper keep multiple concurrently running hosts
+  on one job queue and one tray; a small optional dot badge replaces numeric/flashing badges.
+- Candidate apply writes only the changed/added files; revert restores only those files and
+  never rewrites Claude settings/hooks or unrelated user edits.
+- Engine security: hidden terms are scanned in workspace files; nested network imports,
+  `os.exec*`/`spawn*`, credential/absolute-path reads and risk terms are rejected; failed runs
+  report outcome fields as `null`.
+- `morphd run --proposer-channel byok` injects the BYOK proposer into upstream `run_sweep`
+  with the engine budget guard; the adapter uses a legal placeholder channel.
+- The launcher verifies the platform engine SHA-256, refuses production Python fallback,
+  treats repeated `setup` idempotently and can open the UI when no host was found for manual
+  folder selection. The NSIS uninstaller is configured to run the bundled engine to remove host wrappers/hooks; execution is pending a clean-VM test.
+- Visual evidence now includes 125%/150% simulated display scaling for Home, Hosts, History and
+  Models, plus a 35-scan axe matrix and keyboard apply/revert flows.
+- Legacy hand-edited plaintext provider fields are removed on load and migrated into the
+  keychain/vault where possible.
+- Vacation mode reports how many sessions were skipped without re-running or charging them.
 
 ## Changed (breaking)
 
@@ -42,13 +61,17 @@
 
 - Release artifacts: npm tarballs for `win32-x64`, `cli` and `tray`; Electron NSIS and portable
   `.exe`; `SHA256SUMS-windows.txt`.
-- **Artifacts are unsigned.** Authenticode, SmartScreen reputation, code-signing verification
-  and signed updates are not implemented in this release.
-- npm publication and GitHub Release are performed from this repository with the version
-  `0.5.0`.
+- **Artifacts are unsigned by default.** Release CI can sign them when Authenticode certificate
+  secrets are configured; SmartScreen reputation and signed-update evidence remain pending.
+- npm publication with provenance and GitHub Release are driven from this repository for the
+  tag matching the package version `0.5.0`.
 
 ## Known limitations
 
-- Real host/model evidence, Authenticode signing, tray GUI matrix and container/egress
-  validation are pending. See `docs/verification.md`.
+- Real host/model evidence, a real certificate-signed release, tray GUI matrix and
+  container/egress validation are pending. See `docs/verification.md`.
 - dsh native plugin integration is beta; wrapper + idle fallback is used.
+- Applying a candidate is fixed to its current project; “apply to all projects” awaits a
+  reviewed multi-project apply/revert design.
+- Per-stage rollout checkpointing in the strict engine is not implemented; the consumer path
+  reuses proposal caches and persisted job checkpoints after a host stop.

@@ -14,7 +14,10 @@ if (-not (Test-Path $engine)) {
 }
 $resourceEngine = Join-Path $root "consumer\electron\resources\engine"
 New-Item -ItemType Directory -Force -Path $resourceEngine | Out-Null
-Copy-Item $engine (Join-Path $resourceEngine "morphd-engine.exe") -Force
+$resourceBinary = Join-Path $resourceEngine "morphd-engine.exe"
+Copy-Item $engine $resourceBinary -Force
+$engineHash = (Get-FileHash -Path $resourceBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content -Path (Join-Path $resourceEngine "SHA256SUMS") -Value "$engineHash  morphd-engine.exe" -Encoding ascii
 
 $release = Join-Path $root "consumer\electron\release"
 if (Test-Path $release) {
@@ -22,6 +25,14 @@ if (Test-Path $release) {
 }
 
 $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+if ($env:MORPHD_SIGN_CERT) {
+    # electron-builder reads CSC_LINK/CSC_KEY_PASSWORD and signs app + installers.
+    $env:CSC_LINK = $env:MORPHD_SIGN_CERT
+    if ($env:MORPHD_SIGN_PASSWORD) { $env:CSC_KEY_PASSWORD = $env:MORPHD_SIGN_PASSWORD }
+    Write-Host "Authenticode signing enabled for Electron artifacts."
+} else {
+    Write-Warning "Electron artifacts will be unsigned (MORPHD_SIGN_CERT is not set)."
+}
 if ($ElectronMirror) { $env:ELECTRON_MIRROR = $ElectronMirror }
 if ($BuilderMirror) { $env:ELECTRON_BUILDER_BINARIES_MIRROR = $BuilderMirror }
 
@@ -33,7 +44,17 @@ try {
     Pop-Location
 }
 
-Get-ChildItem $release -File -Filter "*.exe" | ForEach-Object {
+$installers = @(Get-ChildItem $release -File -Filter "*.exe")
+if ($installers.Count -lt 2) {
+    throw "Expected NSIS and portable installers, found $($installers.Count) .exe files in $release."
+}
+if (-not ($installers | Where-Object { $_.Name -match 'Setup' })) {
+    throw "The NSIS installer was not produced in $release."
+}
+if (-not ($installers | Where-Object { $_.Name -notmatch 'Setup' })) {
+    throw "The portable installer was not produced in $release."
+}
+$installers | ForEach-Object {
     $size = [math]::Round($_.Length / 1MB, 1)
     Write-Host "installer: $($_.FullName) ($size MB)"
 }

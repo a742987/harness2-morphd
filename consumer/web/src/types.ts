@@ -27,6 +27,8 @@ export interface BudgetNumbers {
 export interface Status {
   version: number;
   app_version: string;
+  paused: boolean;
+  incognito: boolean;
   hosts: {
     host: string;
     label: string;
@@ -44,6 +46,7 @@ export interface Status {
     paused_until: string | null;
     paused_forever: boolean;
     vacation: boolean;
+    incognito: boolean;
     incognito_next: boolean;
     incognito_sessions: string[];
     active_sessions?: { session_id: string; host: string; started_at?: string }[];
@@ -55,6 +58,14 @@ export interface Status {
   job: { running: string | null; queued: number };
   tray: { available: boolean; status: string };
   vault: { keychain: boolean; vault: boolean; vault_unlocked: boolean };
+  feedback?: {
+    prompts: {
+      project_id: string;
+      downranked: boolean;
+      counts: Record<string, number>;
+      quiet_until?: string | null;
+    }[];
+  };
   started_at: string;
 }
 
@@ -88,6 +99,8 @@ export interface Settings {
     close_window: "tray" | "exit";
     idle_delay_minutes: number;
     tray_enabled: boolean;
+    auto_apply_window_start: string;
+    auto_apply_window_end: string;
   };
   privacy: {
     telemetry: boolean;
@@ -95,6 +108,8 @@ export interface Settings {
     excluded_globs: string[];
     local_only: boolean;
     auto_discover_hosts: boolean;
+    paused_session_recording: "minimal" | "none" | "full";
+    snapshot_limit: number;
   };
   ui: {
     theme: Theme;
@@ -105,6 +120,7 @@ export interface Settings {
     style: "concise" | "detailed";
     beginner: boolean;
     terminology_tooltips: boolean;
+    screen_reader_optimized: boolean;
   };
   models: {
     preset: "frugal" | "balanced" | "quality" | "local" | "custom";
@@ -206,9 +222,24 @@ export interface HostCandidate {
   reason: string;
   integration: string;
   installed?: boolean;
+  installed_version?: string;
+  upgrade_available?: boolean;
+  repair_required?: boolean;
   record_id?: string;
   project_root?: string;
   wrapper?: string;
+}
+
+export interface ManualProject {
+  id: string;
+  host: "dsh" | "claude-code" | "codex";
+  project_root: string;
+  config_dir: string | null;
+  label: string;
+  read_only: true;
+  auto_trigger: false;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface InstallRecord {
@@ -273,9 +304,13 @@ export interface Candidate {
   cost_usd: number;
   confidence: "high" | "normal";
   safety: { ok: boolean; checks: string[]; violations: string[]; findings: unknown[] };
+  fallback_used?: boolean;
+  model?: string;
+  model_used?: string;
   state: string;
   presented: boolean;
   presentation_reason: string;
+  present_after?: string;
   created_at: string;
   applied_at: string | null;
   reverted_at: string | null;

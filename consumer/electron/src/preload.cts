@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld("morphd", {
   getStatus: () => ipcRenderer.invoke("morphd:status"),
   showWindow: () => ipcRenderer.invoke("morphd:show"),
   openSettings: () => ipcRenderer.invoke("morphd:open-settings"),
+  pickFolder: (kind: string) =>
+    ipcRenderer.invoke("morphd:pick-folder", String(kind)),
   pause: (until: string) => ipcRenderer.invoke("morphd:pause", String(until)),
   setIncognito: (active: boolean) =>
     ipcRenderer.invoke("morphd:incognito", Boolean(active)),

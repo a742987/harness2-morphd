@@ -5,7 +5,7 @@ import { useApp } from "../state";
 import type { HostCandidate, Provider } from "../types";
 import { Icon } from "../components/Icon";
 import { ProviderForm } from "../components/ProviderForm";
-import { Button, ErrorBanner, Field, InfoNote, Input, Toggle } from "../components/UI";
+import { Button, CodeBlock, ErrorBanner, Field, InfoNote, Input, Modal, Toggle } from "../components/UI";
 
 const STEPS = [
   { zh: "找到宿主", en: "Find your host" },
@@ -26,6 +26,7 @@ export function Onboarding() {
   const lang = useLang();
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [sampleOpen, setSampleOpen] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [selected, setSelected] = useState<HostCandidate | null>(null);
   const [projectRoot, setProjectRoot] = useState("");
@@ -162,9 +163,19 @@ export function Onboarding() {
           excluded_globs: app.settings?.privacy.excluded_globs || [],
           local_only: app.settings?.privacy.local_only || false,
           auto_discover_hosts: true,
+          paused_session_recording:
+            app.settings?.privacy.paused_session_recording || "minimal",
+          snapshot_limit: app.settings?.privacy.snapshot_limit || 10,
         },
       });
       await app.refreshData();
+      // The NPM installer serves a temporary UI; finishing the guide closes it. On a
+      // normal host UI this is a harmless marker that no runtime watches.
+      try {
+        await api.completeOnboarding();
+      } catch {
+        /* the host may already be shutting down the temporary UI */
+      }
       app.dismissOnboarding();
       app.setPage("home");
     } catch (caught) {
@@ -537,13 +548,61 @@ export function Onboarding() {
               <Button variant="ghost" onClick={() => setStep(1)}>
                 {l("上一步", "Back")}
               </Button>
-              <Button onClick={finish} loading={busy} icon="check">
-                {l("完成，进入首页", "Finish and open Home")}
-              </Button>
+              <div className="row">
+                <Button variant="ghost" icon="eye" onClick={() => setSampleOpen(true)}>
+                  {l("看一条示例建议", "See a sample suggestion")}
+                </Button>
+                <Button onClick={finish} loading={busy} icon="check">
+                  {l("完成，进入首页", "Finish and open Home")}
+                </Button>
+              </div>
             </div>
           </section>
         ) : null}
       </main>
+      {sampleOpen ? (
+        <Modal
+          title={l("示例建议（不调用模型）", "Sample suggestion (no model call)")}
+          onClose={() => setSampleOpen(false)}
+          footer={
+            <Button onClick={() => setSampleOpen(false)}>{l("关闭示例", "Close sample")}</Button>
+          }
+        >
+          <div className="stack">
+            <InfoNote icon="spark">
+              {l(
+                "这是内置示例，不是你的数据；不会调用模型，也不产生费用。",
+                "This is a built-in example, not your data. It makes no model call and costs nothing.",
+              )}
+            </InfoNote>
+            <div className="candidate-card">
+              <div className="candidate-meta">
+                <span className="badge badge-accent">{l("待看", "Inbox")}</span>
+                <span className="badge">{l("说明书", "Instructions")}</span>
+              </div>
+              <h3 className="candidate-summary">
+                {l("在 AGENTS.md 增加构建前检查", "Add a pre-build check to AGENTS.md")}
+              </h3>
+              <p className="sub">
+                {l(
+                  "来源：示例会话 14:32 · 2 次纠正、1 次工具失败。预计影响：下次少一次来回。成本：$0（示例）。风险：只改现有说明文件，不碰权限/沙箱/hooks。",
+                  "Source: sample session 14:32 · 2 corrections, 1 tool failure. Expected effect: one fewer round trip. Cost: $0 (sample). Risk: only the existing instruction file; no permissions/sandbox/hooks.",
+                )}
+              </p>
+            </div>
+            <CodeBlock
+              label={l("改动对比", "Change comparison")}
+              code={"--- a/AGENTS.md\n+++ b/AGENTS.md\n@@\n+- 修改后先运行项目检查，再报告完成。\n"}
+            />
+            <p className="sub">
+              {l(
+                "真实建议会先显示发送预览、预计成本与快照；应用后可随时撤销。",
+                "Real suggestions show a send preview, estimated cost and snapshot first; every apply can be reverted.",
+              )}
+            </p>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }

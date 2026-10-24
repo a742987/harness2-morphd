@@ -5,8 +5,9 @@
  * or a browser.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -33,12 +34,37 @@ function engine() {
     const pkg = JSON.parse(readFileSync(manifest, "utf8"));
     if (pkg.morphd?.engine) {
       const target = join(dirname(manifest), pkg.morphd.engine);
-      if (existsSync(target)) return { command: target, prefix: [] };
+      if (existsSync(target)) {
+        const sumsFile = join(dirname(manifest), "SHA256SUMS");
+        const relative = String(pkg.morphd.engine).replace(/\\/gu, "/");
+        if (existsSync(sumsFile)) {
+          const wanted = readFileSync(sumsFile, "utf8")
+            .split(/\r?\n/u)
+            .map((line) => line.trim().split(/\s+/u))
+            .find((parts) => parts.length >= 2 && parts[parts.length - 1].replace(/^\.\//u, "") === relative);
+          const actual = createHash("sha256").update(readFileSync(target)).digest("hex");
+          if (!wanted || actual !== wanted[0].toLowerCase()) {
+            process.stderr.write("morphd-tray: platform engine checksum mismatch; refusing to run.\n");
+            process.exit(1);
+          }
+        } else if (process.env.MORPHD_ALLOW_UNVERIFIED_ENGINE !== "1") {
+          process.stderr.write("morphd-tray: platform engine has no SHA256SUMS; refusing to run.\n");
+          process.exit(1);
+        }
+        return { command: target, prefix: [] };
+      }
     }
   } catch {
     /* optional platform package missing */
   }
   const explicitPython = process.env.MORPHD_PYTHON?.trim();
+  if (!explicitPython && process.env.MORPHD_ALLOW_PYTHON_ENGINE !== "1") {
+    process.stderr.write(
+      `morphd-tray: no verified engine found for Windows x64; ` +
+        `install ${platformPackage()} or set MORPHD_ENGINE_BIN.\n`,
+    );
+    process.exit(1);
+  }
   const candidates = [
     ...(explicitPython ? [{ command: explicitPython, prefix: [] }] : []),
     { command: "python", prefix: [] },
@@ -61,8 +87,48 @@ function engine() {
 }
 
 const home = process.env.MORPHD_HOME?.trim() || join(homedir(), ".morphd");
-const serverFile = join(home, "runtime", "server.json");
-if (!existsSync(serverFile)) {
+
+function pidAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function runningServer() {
+  const pointer = join(home, "runtime", "server.json");
+  try {
+    if (existsSync(pointer)) {
+      const info = JSON.parse(readFileSync(pointer, "utf8"));
+      if (info.base_url && info.host_token && (!info.pid || pidAlive(info.pid))) return info;
+    }
+  } catch {
+    /* stale pointer */
+  }
+  const servers = join(home, "runtime", "servers");
+  if (!existsSync(servers)) return null;
+  try {
+    const candidates = readdirSync(servers)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => {
+        try {
+          return JSON.parse(readFileSync(join(servers, name), "utf8"));
+        } catch {
+          return null;
+        }
+      })
+      .filter((info) => info && info.base_url && info.host_token && (!info.pid || pidAlive(info.pid)))
+      .sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")));
+    return candidates[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+if (!runningServer()) {
   process.stderr.write("morphd-tray: no running host server; tray is not resident.\n");
   process.exit(0);
 }

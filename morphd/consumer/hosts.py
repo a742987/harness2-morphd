@@ -14,6 +14,11 @@ import sys
 import time
 from pathlib import Path
 
+try:  # Windows-only product; keep imports safe on non-Windows test hosts.
+    import winreg
+except ImportError:  # pragma: no cover - exercised only off Windows
+    winreg = None  # type: ignore[assignment]
+
 from .. import config, winproc
 from .. import store as engine_store
 from . import APP_VERSION
@@ -44,6 +49,26 @@ _CONFIG_ENV = {
 }
 _PROJECT_FILES = {"dsh": "AGENTS.md", "claude-code": "CLAUDE.md", "codex": "AGENTS.md"}
 _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+)")
+_ACTIVE_RECORD_STATUSES = ("adapted", "beta")
+_REGISTRY_UNINSTALL_ROOTS = (
+    ("HKEY_CURRENT_USER", r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ("HKEY_LOCAL_MACHINE", r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+    (
+        "HKEY_LOCAL_MACHINE",
+        r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+    ),
+)
+_REGISTRY_APP_PATH_ROOTS = (
+    ("HKEY_CURRENT_USER", r"Software\Microsoft\Windows\CurrentVersion\App Paths"),
+    ("HKEY_LOCAL_MACHINE", r"Software\Microsoft\Windows\CurrentVersion\App Paths"),
+    (
+        "HKEY_LOCAL_MACHINE",
+        r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths",
+    ),
+)
+_EXECUTABLE_SUFFIXES = (".exe", ".cmd", ".bat")
+_REGISTRY_VALUE_NAMES = ("DisplayName", "DisplayVersion", "InstallLocation", "DisplayIcon")
+_REGISTRY_MAX_SUBKEYS = 10_000
 
 
 def _version_tuple(value: str) -> tuple[int, int, int] | None:
@@ -52,6 +77,276 @@ def _version_tuple(value: str) -> tuple[int, int, int] | None:
         return None
     parts = tuple(int(part) for part in match.group(1).split("."))
     return parts  # type: ignore[return-value]
+
+
+def _version_text(value: object) -> str:
+    return str(value or "").strip().lower().lstrip("v")
+
+
+def _same_version(left: object, right: object) -> bool:
+    return bool(_version_text(left)) and _version_text(left) == _version_text(right)
+
+
+def _path_key(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        pass
+    return os.path.normcase(str(path))
+
+
+def _same_executable(left: object, right: object) -> bool:
+    left_key = _path_key(left)
+    return bool(left_key) and left_key == _path_key(right)
+
+
+def _executable_names(kind: str) -> tuple[str, ...]:
+    name = HOST_BINARIES[kind]
+    return (f"{name}.exe", f"{name}.cmd", f"{name}.bat", name)
+
+
+# --- read-only Windows registry discovery -------------------------------------
+def _registry_open(registry, root, subkey: str):
+    """Open a registry key for reading only. Any failure is non-fatal."""
+    try:
+        return registry.OpenKey(root, subkey, 0, getattr(registry, "KEY_READ", 0))
+    except Exception:
+        return None
+
+
+def _registry_close(registry, key) -> None:
+    try:
+        registry.CloseKey(key)
+    except Exception:
+        return
+
+
+def _registry_value(registry, key, name: str) -> str:
+    """Read one explicitly allowed string value; malformed values are ignored."""
+    try:
+        value, _kind = registry.QueryValueEx(key, name)
+    except Exception:
+        return ""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _registry_kind(display_name: str, kinds: list[str]) -> str | None:
+    tokens = set(re.findall(r"[a-z0-9]+", (display_name or "").lower()))
+    for kind in kinds:
+        if kind == "dsh" and ("dsh" in tokens or {"deepseek", "cli"} <= tokens):
+            return kind
+        if kind == "claude-code" and "claude" in tokens:
+            return kind
+        if kind == "codex" and "codex" in tokens:
+            return kind
+    return None
+
+
+def _clean_registry_path(value: object) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text[0] in ("'", '"'):
+        end = text.find(text[0], 1)
+        if end <= 1:
+            return None
+        text = text[1:end]
+    text = os.path.expandvars(text).strip()
+    if not text:
+        return None
+    try:
+        return Path(text)
+    except (OSError, ValueError):
+        return None
+
+
+def _clean_icon_path(value: object) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not text.startswith(('"', "'")):
+        text = re.sub(r",\s*-?\d+\s*$", "", text)
+    return _clean_registry_path(text)
+
+
+def _install_dir_executables(kind: str, raw_location: object) -> list[Path]:
+    """Look in an install location plus its conventional bin folders (no recursion)."""
+    location = _clean_registry_path(raw_location)
+    if location is None:
+        return []
+    try:
+        if location.is_file():
+            return [location]
+        if not location.is_dir():
+            return []
+    except OSError:
+        return []
+    found: list[Path] = []
+    seen: set[str] = set()
+    directories = (location, location / "bin", location / "node_modules" / ".bin")
+    for directory in directories:
+        for name in _executable_names(kind):
+            path = directory / name
+            try:
+                if not path.is_file():
+                    continue
+            except OSError:
+                continue
+            key = _path_key(path)
+            if key and key not in seen:
+                seen.add(key)
+                found.append(path)
+    return found
+
+
+def _registry_executables(kind: str, entry: dict) -> list[Path]:
+    found: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path | None) -> None:
+        if path is None:
+            return
+        key = _path_key(path)
+        if key and key not in seen:
+            seen.add(key)
+            found.append(path)
+
+    for path in _install_dir_executables(kind, entry.get("install_location")):
+        add(path)
+    icon = _clean_icon_path(entry.get("display_icon"))
+    if icon is not None and icon.suffix.lower() in _EXECUTABLE_SUFFIXES:
+        try:
+            if icon.is_file():
+                add(icon)
+        except OSError:
+            pass
+    return found
+
+
+def _uninstall_registry_entries(registry, kinds: list[str]) -> list[dict]:
+    entries: list[dict] = []
+    for hive_name, subkey in _REGISTRY_UNINSTALL_ROOTS:
+        hive = getattr(registry, hive_name, None)
+        if hive is None:
+            continue
+        root = _registry_open(registry, hive, subkey)
+        if root is None:
+            continue
+        try:
+            index = 0
+            while index < _REGISTRY_MAX_SUBKEYS:
+                try:
+                    child_name = registry.EnumKey(root, index)
+                except Exception:
+                    break
+                index += 1
+                child = _registry_open(registry, root, child_name)
+                if child is None:
+                    continue
+                try:
+                    display_name = _registry_value(registry, child, "DisplayName")
+                    kind = _registry_kind(display_name, kinds)
+                    if kind is None:
+                        continue
+                    entry = {
+                        "display_name": display_name,
+                        "display_version": _registry_value(
+                            registry, child, "DisplayVersion"
+                        ),
+                        "install_location": _registry_value(
+                            registry, child, "InstallLocation"
+                        ),
+                        "display_icon": _registry_value(registry, child, "DisplayIcon"),
+                    }
+                    for executable in _registry_executables(kind, entry):
+                        entries.append({"kind": kind, "executable": executable, **entry})
+                finally:
+                    _registry_close(registry, child)
+        finally:
+            _registry_close(registry, root)
+    return entries
+
+
+def _app_path_registry_entries(registry, kinds: list[str]) -> list[dict]:
+    entries: list[dict] = []
+    for hive_name, subkey in _REGISTRY_APP_PATH_ROOTS:
+        hive = getattr(registry, hive_name, None)
+        if hive is None:
+            continue
+        root = _registry_open(registry, hive, subkey)
+        if root is None:
+            continue
+        try:
+            for kind in kinds:
+                name = HOST_BINARIES[kind]
+                for key_name in (f"{name}.exe", name):
+                    key = _registry_open(registry, root, key_name)
+                    if key is None:
+                        continue
+                    try:
+                        default_value = _registry_value(registry, key, "")
+                        install_location = _registry_value(registry, key, "Path")
+                    finally:
+                        _registry_close(registry, key)
+                    executables: list[Path] = []
+                    executable = _clean_registry_path(default_value)
+                    if executable is not None:
+                        try:
+                            if executable.is_file() and (
+                                executable.suffix.lower() in _EXECUTABLE_SUFFIXES
+                                or executable.name.lower() in _executable_names(kind)
+                            ):
+                                executables.append(executable)
+                        except OSError:
+                            pass
+                    for path in _install_dir_executables(kind, install_location):
+                        if _path_key(path) not in {_path_key(item) for item in executables}:
+                            executables.append(path)
+                    for executable in executables:
+                        entries.append(
+                            {
+                                "kind": kind,
+                                "executable": executable,
+                                "display_name": key_name,
+                                "display_version": "",
+                                "install_location": install_location,
+                                "display_icon": default_value,
+                            }
+                        )
+        finally:
+            _registry_close(registry, root)
+    return entries
+
+
+def _registry_entries(
+    kinds: list[str] | None = None, *, registry=None
+) -> list[dict]:
+    """Return host executables described by read-only uninstall/App Paths metadata.
+
+    ``registry`` is injectable so tests never touch the real registry. Only
+    DisplayName, DisplayVersion, InstallLocation, DisplayIcon, and App Paths
+    default/Path values are read. No credentials or session data is queried.
+    """
+    module = registry if registry is not None else winreg
+    if module is None:
+        return []
+    selected = [kind for kind in (kinds if kinds is not None else HOST_BINARIES) if kind in HOST_BINARIES]
+    if not selected:
+        return []
+    entries: list[dict] = []
+    try:
+        entries.extend(_uninstall_registry_entries(module, selected))
+    except Exception:
+        pass
+    try:
+        entries.extend(_app_path_registry_entries(module, selected))
+    except Exception:
+        pass
+    return entries
 
 
 def _command_line(argv: list[str]) -> list[str]:
@@ -122,11 +417,15 @@ def _common_bin_dirs() -> list[Path]:
                     base / "Programs",
                     base / "Programs" / "nodejs",
                     base / "Programs" / "Claude",
+                    base / "Programs" / "codex",
+                    base / "Programs" / "dsh",
                 ]
             )
-    npm_prefix = _npm_prefix()
-    if npm_prefix:
-        dirs.extend([npm_prefix, npm_prefix / "node_modules" / ".bin"])
+    for prefix in _package_manager_prefixes():
+        dirs.extend([prefix, prefix / "bin", prefix / "node_modules" / ".bin"])
+    pnpm_home = os.environ.get("PNPM_HOME")
+    if pnpm_home:
+        dirs.append(Path(pnpm_home))
     out = []
     seen = set()
     for directory in dirs:
@@ -140,13 +439,13 @@ def _common_bin_dirs() -> list[Path]:
     return out
 
 
-def _npm_prefix() -> Path | None:
-    npm = shutil.which("npm")
-    if not npm:
-        return None
+def _command_output(command: str, args: list[str]) -> str:
+    binary = shutil.which(command)
+    if not binary:
+        return ""
     try:
         proc = subprocess.run(
-            winproc.command_line(npm, ["config", "get", "prefix"]),
+            winproc.command_line(binary, args),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -154,10 +453,30 @@ def _npm_prefix() -> Path | None:
             timeout=10,
             check=False,
         )
-        raw = (proc.stdout or "").strip()
-        return Path(raw).expanduser() if proc.returncode == 0 and raw else None
+        return (proc.stdout or "").strip() if proc.returncode == 0 else ""
     except (OSError, subprocess.TimeoutExpired):
-        return None
+        return ""
+
+
+def _npm_prefix() -> Path | None:
+    raw = _command_output("npm", ["config", "get", "prefix"])
+    return Path(raw).expanduser() if raw else None
+
+
+def _package_manager_prefixes() -> list[Path]:
+    """Global npm/pnpm/yarn install roots, read without invoking a host binary."""
+    out: list[Path] = []
+    npm_prefix = _npm_prefix()
+    if npm_prefix:
+        out.append(npm_prefix)
+    pnpm_root = _command_output("pnpm", ["root", "-g"])
+    if pnpm_root:
+        out.append(Path(pnpm_root).expanduser())
+        out.append(Path(pnpm_root).expanduser().parent)
+    yarn_bin = _command_output("yarn", ["global", "bin"])
+    if yarn_bin:
+        out.append(Path(yarn_bin).expanduser())
+    return out
 
 
 def _default_config_dirs(kind: str) -> list[Path]:
@@ -169,9 +488,12 @@ def _default_config_dirs(kind: str) -> list[Path]:
     appdata = os.environ.get("APPDATA")
     local = os.environ.get("LOCALAPPDATA")
     if appdata:
-        dirs.append(Path(appdata) / ("Claude" if kind == "claude-code" else kind))
-    if local and kind == "claude-code":
-        dirs.append(Path(local) / "Programs" / "Claude")
+        label = {"claude-code": "Claude", "codex": "codex", "dsh": "dsh"}[kind]
+        dirs.append(Path(appdata) / label)
+    if local:
+        label = {"claude-code": "Claude", "codex": "codex", "dsh": "dsh"}[kind]
+        dirs.append(Path(local) / "Programs" / label)
+        dirs.append(Path(local) / label)
     out = []
     seen = set()
     for directory in dirs:
@@ -256,8 +578,166 @@ def inspect_executable(executable: Path, kind: str, *, config_dir: Path | None =
     }
 
 
+def _active_install_records(records: list[dict]) -> list[dict]:
+    return [
+        record
+        for record in records
+        if isinstance(record, dict)
+        and record.get("status") in _ACTIVE_RECORD_STATUSES
+        and record.get("host") in HOST_BINARIES
+    ]
+
+
+def _best_install_record(
+    records: list[dict], kind: str, executable: object, version: object
+) -> dict | None:
+    options = [record for record in records if record.get("host") == kind]
+    if not options:
+        return None
+    for record in options:
+        if _same_executable(record.get("executable"), executable) and _same_version(
+            record.get("version"), version
+        ):
+            return record
+    for record in options:
+        if _same_executable(record.get("executable"), executable):
+            return record
+    return max(options, key=lambda record: _version_tuple(str(record.get("version") or "")) or (0, 0, 0))
+
+
+def _record_candidate(record: dict) -> dict | None:
+    kind = str(record.get("host") or "")
+    if kind not in HOST_BINARIES:
+        return None
+    version = str(record.get("version") or "")
+    executable = str(record.get("executable") or "")
+    install_dir = str(record.get("install_dir") or "")
+    if not install_dir and executable:
+        install_dir = str(Path(executable).parent)
+    config_value = str(record.get("config_dir") or "")
+    config_dir = Path(config_value) if config_value else None
+    if config_dir is None:
+        config_ok, config_reason = False, "config_missing"
+    else:
+        config_ok, config_reason = _config_state(kind, config_dir)
+    version_ok = (
+        (version_tuple := _version_tuple(version)) is not None
+        and version_tuple[:2] == COMPATIBLE_MINORS[kind]
+    )
+    if not version_ok:
+        status = "version_unsupported"
+        reason = f"版本 {version} 不在支持矩阵内" if version else "无法读取版本"
+    elif not config_ok:
+        status = "permission_denied" if config_reason == "permission_denied" else "config_missing"
+        reason = "配置目录不可写" if config_reason == "permission_denied" else "没有找到配置目录"
+    else:
+        status = "installed"
+        reason = ""
+    return {
+        "id": record.get("id") or _candidate_id(kind, executable, version),
+        "kind": kind,
+        "label": HOST_LABELS[kind],
+        "version": version,
+        "executable": executable,
+        "install_dir": install_dir,
+        "config_dir": str(config_dir) if config_dir else "",
+        "config_writable": config_ok,
+        "identity": record.get("identity", kind),
+        "compatible": version_ok,
+        "status": status,
+        "reason": reason,
+        "integration": record.get("integration", "wrapper"),
+        "installed": True,
+        "installed_version": version,
+        "upgrade_available": False,
+        "repair_required": False,
+        "record_id": record.get("id"),
+        "sources": ["install_record"],
+        "raw_version": version,
+    }
+
+
+def _apply_install_state(candidate: dict, record: dict | None) -> None:
+    """Attach stable installed/upgrade/repair fields without changing compatibility."""
+    candidate["installed"] = False
+    candidate["installed_version"] = str(record.get("version") or "") if record else ""
+    candidate["upgrade_available"] = False
+    candidate["repair_required"] = False
+    if record is None:
+        return
+    same_executable = _same_executable(candidate.get("executable"), record.get("executable"))
+    same_version = _same_version(candidate.get("version"), record.get("version"))
+    if same_executable and same_version:
+        candidate["installed"] = True
+        candidate["record_id"] = record.get("id")
+        if not candidate.get("compatible", False):
+            return
+        if not candidate.get("config_writable", False):
+            candidate["repair_required"] = True
+            candidate["status"] = "repair_required"
+            if not candidate.get("reason"):
+                candidate["reason"] = "已安装，但配置目录不可写或缺失"
+            return
+        candidate["status"] = "installed"
+        candidate["reason"] = ""
+        return
+    installed_version = _version_tuple(str(record.get("version") or ""))
+    candidate_version = _version_tuple(str(candidate.get("version") or ""))
+    if (
+        candidate.get("compatible", False)
+        and installed_version is not None
+        and candidate_version is not None
+        and candidate_version > installed_version
+    ):
+        candidate["upgrade_available"] = True
+        candidate["status"] = "upgrade_available"
+        if not candidate.get("reason"):
+            candidate["reason"] = (
+                f"已安装 {record.get('version')}，发现新版本 {candidate.get('version')}"
+            )
+
+
+def _dedupe_key(candidate: dict) -> tuple[str, str, str]:
+    return (
+        str(candidate.get("kind") or ""),
+        _path_key(candidate.get("executable")),
+        _version_text(candidate.get("version")),
+    )
+
+
+def _candidate_sort_key(candidate: dict) -> tuple[str, tuple[int, int, int], str, bool]:
+    return (
+        str(candidate.get("kind") or ""),
+        _version_tuple(str(candidate.get("version") or "")) or (0, 0, 0),
+        _version_text(candidate.get("version")),
+        bool(candidate.get("installed")),
+    )
+
+
+def _live_host_records(kind: str) -> bool:
+    home = Path(os.environ.get("MORPHD_HOME", Path.home() / ".morphd"))
+    root = home / "runtime" / "hosts"
+    if not root.is_dir():
+        return False
+    for path in root.glob(f"{kind}-*.json"):
+        payload = engine_store.read_json(path)
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("host") != kind:
+            continue
+        if winproc.pid_alive(payload.get("pid")) or winproc.pid_alive(payload.get("child_pid")):
+            return True
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    return False
+
+
 def host_running(kind: str) -> bool:
     """Best-effort check that the host is currently running. Never a write guard alone."""
+    if _live_host_records(kind):
+        return True
     name = HOST_BINARIES[kind].lower()
     try:
         proc = subprocess.run(
@@ -278,9 +758,16 @@ def host_running(kind: str) -> bool:
 
 
 class HostManager:
-    def __init__(self, store: ConsumerStore, settings: config.Settings | None = None):
+    def __init__(
+        self,
+        store: ConsumerStore,
+        settings: config.Settings | None = None,
+        *,
+        registry=None,
+    ):
         self.store = store
         self.settings = settings
+        self.registry = registry
         self.hosts_root = store.home / "hosts"
         self.hosts_root.mkdir(parents=True, exist_ok=True)
         self._discover_cache: tuple[float, list[dict]] | None = None
@@ -325,52 +812,104 @@ class HostManager:
             and time.monotonic() - self._discover_cache[0] < 30
         ):
             return copy.deepcopy(self._discover_cache[1])
-        kinds = kinds or list(HOST_BINARIES)
-        candidates: list[dict] = []
-        seen = set()
-        for kind in kinds:
-            name = HOST_BINARIES[kind]
-            paths = _path_binaries(name)
-            for directory in _common_bin_dirs():
-                for suffix in ("exe", "cmd", "bat", ""):
-                    path = directory / f"{name}.{suffix}" if suffix else directory / name
-                    if path.is_file():
-                        paths.append(path)
-            unique: list[Path] = []
-            for path in paths:
-                try:
-                    key = str(path.resolve()).lower()
-                except OSError:
-                    key = str(path).lower()
-                if key not in seen:
-                    seen.add(key)
-                    unique.append(path)
-            for path in unique:
-                try:
-                    candidates.append(inspect_executable(path, kind))
-                except ConsumerError:
-                    continue
-        for record in self.install_records():
-            candidates.append(
-                {
-                    "id": record.get("id"),
-                    "kind": record.get("host"),
-                    "label": HOST_LABELS.get(record.get("host"), record.get("host")),
-                    "version": record.get("version"),
-                    "executable": record.get("executable"),
-                    "install_dir": record.get("install_dir"),
-                    "config_dir": record.get("config_dir"),
-                    "identity": record.get("identity", record.get("host")),
-                    "compatible": True,
-                    "status": "installed",
-                    "reason": "",
-                    "integration": record.get("integration", "wrapper"),
-                    "installed": True,
-                    "record_id": record.get("id"),
-                }
+        selected = list(HOST_BINARIES) if kinds is None else list(kinds)
+        selected = [kind for kind in selected if kind in HOST_BINARIES]
+        records = [record for record in self.install_records() if isinstance(record, dict)]
+        active_records = _active_install_records(records)
+        sources: dict[tuple[str, str], dict] = {}
+
+        def add_source(kind: str, path: Path | str, source: str, registry_version: str = "") -> None:
+            try:
+                resolved = Path(path).expanduser().resolve()
+            except (OSError, ValueError):
+                resolved = Path(path)
+            key = (kind, _path_key(resolved))
+            item = sources.setdefault(
+                key, {"path": resolved, "sources": [], "registry_version": ""}
             )
-        candidates.sort(key=lambda item: (item.get("kind", ""), item.get("version", "")), reverse=True)
-        if kinds == list(HOST_BINARIES):
+            if source not in item["sources"]:
+                item["sources"].append(source)
+            if registry_version and not item["registry_version"]:
+                item["registry_version"] = registry_version
+
+        if selected:
+            common_dirs = _common_bin_dirs()
+            for entry in _registry_entries(selected, registry=self.registry):
+                add_source(
+                    str(entry.get("kind")),
+                    entry["executable"],
+                    "registry",
+                    str(entry.get("display_version") or ""),
+                )
+            for kind in selected:
+                name = HOST_BINARIES[kind]
+                for path in _path_binaries(name):
+                    add_source(kind, path, "path")
+                for directory in common_dirs:
+                    for filename in _executable_names(kind):
+                        path = directory / filename
+                        try:
+                            if path.is_file():
+                                add_source(kind, path, "common")
+                        except OSError:
+                            continue
+
+        merged: dict[tuple[str, str, str], dict] = {}
+        for (kind, _key), item in sorted(sources.items()):
+            path = item["path"]
+            record = _best_install_record(
+                active_records,
+                kind,
+                path,
+                item["registry_version"],
+            )
+            config_dir = None
+            if record and record.get("config_dir") and _same_executable(
+                record.get("executable"), path
+            ):
+                config_dir = Path(str(record["config_dir"])).expanduser()
+            try:
+                candidate = inspect_executable(path, kind, config_dir=config_dir)
+            except (ConsumerError, OSError):
+                continue
+            candidate["sources"] = list(item["sources"])
+            if item["registry_version"]:
+                candidate["registry_version"] = item["registry_version"]
+            key = _dedupe_key(candidate)
+            existing = merged.get(key)
+            if existing is None:
+                merged[key] = candidate
+            else:
+                for source in candidate.get("sources", []):
+                    if source not in existing.setdefault("sources", []):
+                        existing["sources"].append(source)
+                if candidate.get("registry_version") and not existing.get("registry_version"):
+                    existing["registry_version"] = candidate["registry_version"]
+
+        for record in active_records:
+            candidate = _record_candidate(record)
+            if candidate is None:
+                continue
+            key = _dedupe_key(candidate)
+            existing = merged.get(key)
+            if existing is None:
+                merged[key] = candidate
+                continue
+            existing.setdefault("record_id", record.get("id"))
+            if "install_record" not in existing.setdefault("sources", []):
+                existing["sources"].append("install_record")
+
+        candidates = list(merged.values())
+        for candidate in candidates:
+            record = _best_install_record(
+                active_records,
+                str(candidate.get("kind") or ""),
+                candidate.get("executable"),
+                candidate.get("version"),
+            )
+            _apply_install_state(candidate, record)
+        candidates.sort(key=_candidate_sort_key, reverse=True)
+        if selected == list(HOST_BINARIES):
             self._discover_cache = (time.monotonic(), copy.deepcopy(candidates))
         return candidates
 
@@ -378,6 +917,12 @@ class HostManager:
                         project_root: str | None = None) -> dict:
         if kind not in HOST_BINARIES:
             raise ConsumerError("HOST_UNSUPPORTED", "未知宿主。", "选择 dsh、Claude Code 或 Codex。")
+        if not str(install_path or "").strip():
+            raise ConsumerError(
+                "INVALID_REQUEST",
+                "请选择 Harness 安装目录或可执行文件。",
+                "重新选择后重试；不会使用当前目录作为默认值。",
+            )
         path = Path(install_path).expanduser().resolve()
         executable: Path | None = None
         if path.is_file():
@@ -427,14 +972,18 @@ class HostManager:
     @staticmethod
     def _looks_like_config(kind: str, path: Path) -> bool:
         if kind == "dsh":
-            return (path / "profiles").is_dir() or any(path.glob("*.yaml")) or any(path.glob("*.yml"))
+            return (
+                (path / "profiles").is_dir()
+                or (path / "sessions").is_dir()
+                or (path / "config.toml").is_file()
+            )
         if kind == "claude-code":
-            return path.name == ".claude" or (path / "settings.json").exists() or (path / "projects").is_dir()
-        return (
-            (path / "config.toml").exists()
-            or (path / "sessions").is_dir()
-            or (path / "auth.json").exists()
-        )
+            return (
+                (path / "settings.json").is_file()
+                or (path / "settings.local.json").is_file()
+                or (path / "projects").is_dir()
+            )
+        return (path / "config.toml").is_file() or (path / "sessions").is_dir()
 
     # --- adaptation -----------------------------------------------------------
     @staticmethod
@@ -448,7 +997,20 @@ class HostManager:
 
     def _wrapper_cmd(self, kind: str, executable: str) -> str:
         command, prefix = self._engine_command()
-        pieces = [f'"{command}"', *prefix, "host", "run", "--host", kind, "--binary", f'"{executable}"', "--", "%*"]
+        pieces = [
+            f'"{command}"',
+            *prefix,
+            "host",
+            "run",
+            "--host",
+            kind,
+            "--binary",
+            f'"{executable}"',
+            "--home",
+            f'"{self.store.home}"',
+            "--",
+            "%*",
+        ]
         return "@echo off\r\n" + " ".join(pieces) + "\r\n"
 
     def adapt(self, candidate: dict, *, project_root: str | None = None, register_plugin: bool = False) -> dict:
@@ -471,8 +1033,38 @@ class HostManager:
                 "关闭宿主后重试，或重启宿主以启用 harness2-morphd。",
             )
         existing = self.record_for(kind)
-        if existing and existing.get("executable") == str(executable):
+        if (
+            existing
+            and existing.get("executable") == str(executable)
+            and self._record_healthy(existing)
+        ):
+            updated = False
+            if project_root:
+                resolved_project = str(Path(project_root).expanduser().resolve())
+                if existing.get("project_root") != resolved_project:
+                    existing["project_root"] = resolved_project
+                    updated = True
+            if candidate.get("version") and existing.get("version") != candidate.get("version"):
+                existing["version"] = candidate.get("version")
+                updated = True
+            if updated:
+                install = self._load_install()
+                install["hosts"] = [
+                    existing if item.get("host") == kind else item
+                    for item in install.get("hosts", [])
+                ]
+                self._save_install(install)
             return existing
+        if existing:
+            # Re-adapting (repair, version switch or a moved executable) starts from the
+            # original host state so backups never capture a previously installed hook.
+            self._rollback(existing.get("backups", []), existing.get("created", []))
+            install = self._load_install()
+            install["hosts"] = [
+                item for item in install.get("hosts", []) if item.get("host") != kind
+            ]
+            self._save_install(install)
+            shutil.rmtree(self.hosts_root / kind, ignore_errors=True)
         config_dir = Path(str(candidate.get("config_dir"))).expanduser() if candidate.get("config_dir") else None
         project = Path(project_root).expanduser().resolve() if project_root else None
         host_root = self.hosts_root / kind
@@ -499,12 +1091,24 @@ class HostManager:
                 ),
             )
             created.append(str(plugin_note))
-            if kind == "claude-code" and config_dir and config_dir.is_dir() and os.access(config_dir, os.W_OK):
-                hook_file = config_dir / "settings.local.json"
-                hook_record = self._install_claude_hook(hook_file)
-                backups.extend(hook_record["backups"])
-                created.extend(hook_record["created"])
-                integration = "hook"
+            hook_path = ""
+            if kind == "claude-code":
+                hook_dir = (project / ".claude") if project else config_dir
+                hook_dir_existed = bool(hook_dir and hook_dir.is_dir())
+                if hook_dir is not None:
+                    try:
+                        hook_dir.mkdir(parents=True, exist_ok=True)
+                    except OSError:
+                        pass
+                if hook_dir and not hook_dir_existed and hook_dir.is_dir():
+                    created.append(str(hook_dir))
+                if hook_dir and hook_dir.is_dir() and os.access(hook_dir, os.W_OK):
+                    hook_file = hook_dir / "settings.local.json"
+                    hook_record = self._install_claude_hook(hook_file)
+                    backups.extend(hook_record["backups"])
+                    created.extend(hook_record["created"])
+                    hook_path = str(hook_file)
+                    integration = "hook"
             status = "adapted" if integration == "hook" else "beta"
             record = {
                 "id": candidate.get("id") or _candidate_id(kind, str(executable), candidate.get("version", "")),
@@ -517,6 +1121,7 @@ class HostManager:
                 "adapter_version": APP_VERSION,
                 "integration": integration,
                 "wrapper": str(wrapper),
+                "hooks": [hook_path] if hook_path else [],
                 "identity": candidate.get("identity", kind),
                 "backups": backups,
                 "created": created,
@@ -547,7 +1152,7 @@ class HostManager:
             self._discover_cache = None
             self.store.append_log("host_adapted", host=kind, version=record["version"], integration=integration)
             return record
-        except Exception:
+        except BaseException:
             self._rollback(backups, created)
             raise
 
@@ -555,7 +1160,42 @@ class HostManager:
         wrapper = Path(record["wrapper"])
         if not wrapper.is_file():
             return {"ok": False, "reason": "wrapper 未写入"}
+        engine, prefix = self._engine_command()
+        try:
+            proc = subprocess.run(
+                [engine, *prefix, "version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=20,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return {"ok": False, "reason": f"引擎自检无法启动：{exc}"}
+        if proc.returncode != 0:
+            return {"ok": False, "reason": "引擎版本自检失败"}
         return {"ok": True, "reason": ""}
+
+    def _record_healthy(self, record: dict) -> bool:
+        wrapper = Path(str(record.get("wrapper") or ""))
+        if not wrapper.is_file():
+            return False
+        try:
+            wrapper_text = wrapper.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        if "host" not in wrapper_text or "run" not in wrapper_text:
+            return False
+        for hook in record.get("hooks", []) or []:
+            path = Path(str(hook))
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if "host" not in text or "event" not in text:
+                    return False
+            except OSError:
+                return False
+        return True
 
     def _install_claude_hook(self, hook_file: Path) -> dict:
         backups = []
@@ -579,13 +1219,29 @@ class HostManager:
         if original is not None:
             try:
                 payload = json.loads(original.decode("utf-8"))
-            except ValueError:
-                payload = {}
+            except ValueError as exc:
+                raise ConsumerError(
+                    "ADAPT_FAILED",
+                    "宿主 hook 配置不是有效 JSON，未做修改。",
+                    "修复或备份该配置后重试。",
+                ) from exc
         if not isinstance(payload, dict):
-            payload = {}
+            raise ConsumerError(
+                "ADAPT_FAILED",
+                "宿主 hook 配置结构不符合预期，未做修改。",
+                "备份该配置后手动检查，或选择手动模式。",
+            )
         hooks = payload.setdefault("hooks", {})
         engine, prefix = self._engine_command()
-        base = [*prefix, "host", "event", "--host", "claude-code"]
+        base = [
+            *prefix,
+            "host",
+            "event",
+            "--host",
+            "claude-code",
+            "--home",
+            f'"{self.store.home}"',
+        ]
         for hook_name, extra in (("SessionStart", ["--event", "session-start"]), ("SessionEnd", [])):
             entries = hooks.setdefault(hook_name, [])
             if not isinstance(entries, list):
@@ -594,7 +1250,9 @@ class HostManager:
             command = f'"{engine}" ' + " ".join([*base, *extra, "--stdin"])
             entry = {"hooks": [{"type": "command", "command": command, "timeout": 60}]}
             if not any(
-                "morphd host event" in json.dumps(item) for item in entries if isinstance(item, dict)
+                "host" in json.dumps(item) and "event" in json.dumps(item)
+                for item in entries
+                if isinstance(item, dict)
             ):
                 entries.append(entry)
         engine_store.atomic_write_json(hook_file, payload)
@@ -626,7 +1284,11 @@ class HostManager:
             path = Path(str(item.get("path")))
             backup = Path(str(item.get("backup_path") or ""))
             try:
-                if backup and backup.is_file():
+                if backup:
+                    if not backup.is_file():
+                        # A missing backup is an integrity failure; never delete the
+                        # user's file just because we cannot prove it was ours.
+                        continue
                     path.parent.mkdir(parents=True, exist_ok=True)
                     engine_store.atomic_write_bytes(path, backup.read_bytes())
                 elif path.exists():
@@ -639,7 +1301,7 @@ class HostManager:
                 if path.is_file() or path.is_symlink():
                     path.unlink()
                 elif path.is_dir():
-                    shutil.rmtree(path, ignore_errors=True)
+                    path.rmdir()  # only removes a directory we created and that is empty
             except OSError:
                 continue
 
@@ -669,13 +1331,23 @@ class HostManager:
             return {
                 "AGENTS.md": project_root / "AGENTS.md",
                 "scripts": project_root / "scripts",
-                "skills": (config_dir / "skills") if config_dir else project_root / "skills",
+                "skills": project_root / "skills",
             }
         if kind == "claude-code":
+            # Only declared surfaces are read or written. Claude's settings, hooks and
+            # MCP configuration are deliberately excluded even though they live under
+            # ``.claude``; a candidate must never rewrite them.
+            config_root = (
+                config_dir is not None
+                and not str(record.get("project_root") or "").strip()
+                and project_root.resolve() == config_dir.resolve()
+            )
+            claude_base = project_root if config_root else project_root / ".claude"
             return {
                 "CLAUDE.md": project_root / "CLAUDE.md",
                 "scripts": project_root / "scripts",
-                ".claude": project_root / ".claude",
+                ".claude/skills": claude_base / "skills",
+                ".claude/agents": claude_base / "agents",
             }
         return {
             "AGENTS.md": project_root / "AGENTS.md",
@@ -724,8 +1396,12 @@ class HostManager:
             base, target = Path(paths[instruction]).parent, paths[instruction]
         elif rel.startswith("skills/"):
             base, target = paths["skills"], paths["skills"] / rel[len("skills/") :]
-        elif rel.startswith(".claude/"):
-            base, target = paths[".claude"], paths[".claude"] / rel[len(".claude/") :]
+        elif rel.startswith(".claude/skills/"):
+            base = paths[".claude/skills"]
+            target = base / rel[len(".claude/skills/") :]
+        elif rel.startswith(".claude/agents/"):
+            base = paths[".claude/agents"]
+            target = base / rel[len(".claude/agents/") :]
         elif rel.startswith(".agents/"):
             base, target = paths[".agents"], paths[".agents"] / rel[len(".agents/") :]
         elif rel.startswith("scripts/"):
@@ -750,6 +1426,8 @@ class HostManager:
         return target
 
     def apply_tree(self, kind: str, tree: dict[str, str], *, project_root: str | None = None) -> list[str]:
+        """Write only the supplied files; callers pass the changed/added set, never a
+        snapshot of the whole harness (which could include settings or hooks)."""
         written = []
         for rel, text in tree.items():
             target = self.target_for(kind, rel, project_root=project_root)

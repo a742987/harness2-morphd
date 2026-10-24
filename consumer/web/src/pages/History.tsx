@@ -51,9 +51,17 @@ export function History() {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [sessionDetail, setSessionDetail] = useState<SessionRecord | null>(null);
+  const [manual, setManual] = useState<{
+    session: SessionRecord;
+    preview: Record<string, unknown>;
+    estimated?: number;
+  } | null>(null);
 
   const inbox = app.candidates.filter(
-    (candidate) => candidate.state === "needs_apply" && !candidate.feedback?.some((item) => item.reason === "ignore"),
+    (candidate) =>
+      candidate.state === "needs_apply" &&
+      !candidate.feedback?.some((item) => item.reason === "ignore") &&
+      (!candidate.present_after || new Date(candidate.present_after).getTime() <= Date.now()),
   );
   const candidates = useMemo(
     () => (project ? app.candidates.filter((candidate) => candidate.project_id === project) : app.candidates),
@@ -80,12 +88,34 @@ export function History() {
   };
   const analyze = async (session: SessionRecord) => {
     try {
-      const result = await api.analyzeSession(session.id, true);
-      await app.refreshData();
-      app.toast("ok", `已加入分析队列${result.job_id ? `（${result.job_id}）` : ""}`, "Added to the analysis queue");
+      const result = await api.analyzeSession(session.id, false);
+      setManual({
+        session,
+        preview: result.preview || {},
+        estimated: Number((result as { estimated_cost_usd?: number }).estimated_cost_usd ?? NaN),
+      });
     } catch (caught) {
       setError(caught);
       app.handleError(caught);
+    }
+  };
+  const confirmAnalyze = async () => {
+    if (!manual) return;
+    setBusy(true);
+    try {
+      const result = await api.analyzeSession(manual.session.id, true);
+      await app.refreshData();
+      setManual(null);
+      app.toast(
+        "ok",
+        `已加入分析队列${result.job_id ? `（${result.job_id}）` : ""}`,
+        "Added to the analysis queue",
+      );
+    } catch (caught) {
+      setError(caught);
+      app.handleError(caught);
+    } finally {
+      setBusy(false);
     }
   };
   const cancel = async (jobId: string) => {
@@ -107,8 +137,8 @@ export function History() {
       <PageHeader
         title={l("历史与待看", "History and inbox")}
         subtitle={l(
-          "每条建议都保留来源会话、信号、成本、安全结果和 diff；应用后可一键撤销。",
-          "Every suggestion keeps its source session, signals, cost, safety result, and diff. Applied changes can be reverted.",
+          "每条建议都保留来源会话、信号、成本、安全结果和改动对比；应用后可一键撤销。",
+          "Every suggestion keeps its source session, signals, cost, safety result, and change comparison. Applied changes can be reverted.",
         )}
         actions={
           <select
@@ -240,7 +270,7 @@ export function History() {
                             variant="ghost"
                             icon="play"
                             onClick={() => void analyze(session)}
-                            disabled={["analyzing", "analyzed", "applied", "needs_confirm"].includes(session.status)}
+                            disabled={["analyzing", "analyzed", "applied"].includes(session.status)}
                           >
                             {l("分析", "Analyze")}
                           </Button>
@@ -324,6 +354,51 @@ export function History() {
 
       {sessionDetail ? (
         <SessionDetails session={sessionDetail} onClose={() => setSessionDetail(null)} />
+      ) : null}
+
+      {manual ? (
+        <Modal
+          title={l("分析这次会话？", "Analyze this session?")}
+          subtitle={`${manual.session.id} · ${manual.session.host}`}
+          onClose={() => setManual(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setManual(null)} disabled={busy}>
+                {l("取消", "Cancel")}
+              </Button>
+              <Button icon="play" onClick={confirmAnalyze} loading={busy}>
+                {l("确认并分析", "Confirm and analyze")}
+              </Button>
+            </>
+          }
+        >
+          <p>
+            {l(
+              "分析会把你预览到的脱敏内容发送给所选模型服务商，并受单会话、单次分析与月度预算限制。",
+              "Analysis sends the previewed redacted content to the selected provider and is limited by the session, job, and monthly budgets.",
+            )}
+          </p>
+          <div className="grid-2">
+            <div className="fact">
+              <strong>{l("预计成本", "Estimated cost")}</strong>
+              {Number.isFinite(manual.estimated || NaN)
+                ? formatMoney(Number(manual.estimated), lang)
+                : l("未知（价格未确认时会阻止）", "Unknown (blocked if the price is not confirmed)")}
+            </div>
+            <div className="fact">
+              <strong>{l("将发送", "To send")}</strong>
+              {l("脱敏轨迹 + ", "Redacted trajectory + ")}
+              {Object.keys((manual.preview.files as Record<string, string>) || {}).length}{" "}
+              {l("个工作方式文件", "agent files")}
+            </div>
+          </div>
+          <div className="stack-sm">
+            <strong>{l("发送预览", "Send preview")}</strong>
+            <pre className="code-block">
+              {JSON.stringify(manual.preview, null, 2).slice(0, 6000)}
+            </pre>
+          </div>
+        </Modal>
       ) : null}
     </>
   );

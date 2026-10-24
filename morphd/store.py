@@ -132,7 +132,7 @@ def iter_files(root: Path, *, ignores: Iterable[str] = WORKSPACE_IGNORES) -> Ite
     root = Path(root)
     ignore = set(ignores)
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(d for d in dirnames if d not in ignore and not d.startswith(".git"))
+        dirnames[:] = sorted(d for d in dirnames if d not in ignore)
         for name in sorted(filenames):
             if name.endswith(tuple(_IGNORED_SUFFIXES)):
                 continue

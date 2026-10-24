@@ -23,8 +23,8 @@ const ROLE_LABELS: Record<string, { zh: string; en: string; hintZh: string; hint
   proposer: {
     zh: "递归提案模型",
     en: "Proposer",
-    hintZh: "生成 harness 修改建议；必须支持工具或 JSON 补丁模式。",
-    hintEn: "Generates harness changes; must support tools or JSON patch mode.",
+    hintZh: "生成 Agent 工作方式的改进建议；必须支持工具或 JSON 补丁模式。",
+    hintEn: "Generates agent improvements; must support tools or JSON patch mode.",
   },
   composer: {
     zh: "合成模型",
@@ -54,6 +54,7 @@ export function Models() {
   const [addTemplate, setAddTemplate] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [deleting, setDeleting] = useState<Provider | null>(null);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ provider: string; result: ProviderTestResult } | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -154,6 +155,26 @@ export function Models() {
     }
   };
 
+  const removeAll = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.deleteAllProviders();
+      await app.refreshData();
+      setDeleteAllOpen(false);
+      app.toast(
+        "ok",
+        `已删除 ${result.deleted} 个服务商及其 Key 引用`,
+        `Deleted ${result.deleted} providers and their key references`,
+      );
+    } catch (caught) {
+      setError(caught);
+      app.handleError(caught);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const unlock = async () => {
     setBusy(true);
     setError(null);
@@ -228,6 +249,13 @@ export function Models() {
       <Section
         title={l("服务商", "Providers")}
         subtitle={l("Key 只保存在本机 Keychain 或加密保险库；界面只显示尾号。", "Keys stay in the OS keychain or encrypted vault; only the last digits are shown.")}
+        actions={
+          providers.length > 0 ? (
+            <Button size="sm" variant="ghost" icon="trash" onClick={() => setDeleteAllOpen(true)}>
+              {l("删除全部 Key", "Delete all keys")}
+            </Button>
+          ) : undefined
+        }
       >
         {providers.length === 0 ? (
           <EmptyState
@@ -501,6 +529,30 @@ export function Models() {
             {l(
               "使用这个服务商的角色会停止运行，直到你重新配置。不会影响宿主自身。",
               "Roles using it stop until reconfigured. Your host itself is not affected.",
+            )}
+          </p>
+        </ConfirmDialog>
+      ) : null}
+
+      {deleteAllOpen ? (
+        <ConfirmDialog
+          title={l("删除全部服务商与 Key？", "Delete all providers and keys?")}
+          confirmLabel={l("删除全部 Key 引用", "Delete all key references")}
+          onConfirm={removeAll}
+          onClose={() => setDeleteAllOpen(false)}
+          danger
+          busy={busy}
+        >
+          <p>
+            {l(
+              `将从本机删除 ${providers.length} 个服务商配置与 Key 引用。所有模型角色会停止运行，直到重新配置。`,
+              `Removes ${providers.length} provider configurations and key references from this machine. All model roles stop until reconfigured.`,
+            )}
+          </p>
+          <p className="sub">
+            {l(
+              "这不会删除会话、历史、设置预算或宿主文件；删除后无法恢复 Key。",
+              "Sessions, history, budgets, and host files are kept. Deleted keys cannot be recovered.",
             )}
           </p>
         </ConfirmDialog>

@@ -48,6 +48,55 @@ export function Help() {
         </div>
       </Section>
 
+      <Section
+        title={l("安装、更新与卸载", "Install, update, and uninstall")}
+        subtitle={l("两种入口共用同一引擎、配置与数据目录。", "Both entry points share the same engine, config, and data directory.")}
+      >
+        <div className="stack">
+          <div className="grid-2">
+            <div className="fact">
+              <strong>{l("NPM 一键安装", "One-command NPM install")}</strong>
+              <span className="mono small wrap-anywhere">npx @harness2-morphd/cli@latest setup</span>
+              <span className="sub">{l("需要 Node >= 20；不留下全局包，不需要 Python 或编译器。", "Needs Node >= 20; leaves no global package and needs no Python or compiler.")}</span>
+            </div>
+            <div className="fact">
+              <strong>{l("Windows 桌面安装", "Windows desktop install")}</strong>
+              <span className="sub">{l("双击 harness2-morphd-setup.exe；每用户安装，不要求管理员权限。", "Run harness2-morphd-setup.exe; per-user install without administrator rights.")}</span>
+            </div>
+          </div>
+          <div className="grid-2">
+            <div className="fact">
+              <strong>{l("更新", "Update")}</strong>
+              <span className="mono small wrap-anywhere">npx @harness2-morphd/cli@latest update</span>
+              <span className="sub">{l("先提示版本与变更，不静默更新；npx 用户重新运行 latest 即可。", "Shows the version and changes first; never silent. npx users can re-run latest.")}</span>
+            </div>
+            <div className="fact">
+              <strong>{l("卸载", "Uninstall")}</strong>
+              <span className="mono small wrap-anywhere">npx @harness2-morphd/cli@latest uninstall</span>
+              <span className="sub">{l("恢复宿主配置并移除 wrapper/hook；可单独选择是否删除本地数据与 Key。", "Restores host config and removes wrappers/hooks; choose separately whether to delete local data and keys.")}</span>
+            </div>
+          </div>
+          <InfoNote icon="terminal">
+            {l(
+              "安装器不使用 curl | sh、不运行任意 postinstall、不请求管理员权限，也不会静默开启自动应用、遥测或系统通知。",
+              "The installer never uses curl | sh, arbitrary postinstall scripts, or administrator rights, and never silently enables auto-apply, telemetry, or system notifications.",
+            )}
+          </InfoNote>
+        </div>
+      </Section>
+
+      <Section
+        title={l("第三方模型与数据处理", "Third-party models and data")}
+        subtitle={l("模型服务商由你选择并直接结算；morphd 不代理或转售模型调用。", "You choose and pay the model provider directly; morphd does not proxy or resell calls.")}
+      >
+        <ul className="step-list">
+          <li><span>•</span><span>{l("发送内容仅限脱敏后的工作方式文件、用户消息与轨迹摘要；workspace 源码不会上传。", "Only redacted agent files, user turns, and a trajectory summary are sent; workspace source is not uploaded.")}</span></li>
+          <li><span>•</span><span>{l("首次启用服务商前需确认其数据处理/保留/训练政策摘要；可随时删除 Key 并撤销授权。", "Confirm the provider's data handling, retention, and training summary before first use; delete the key and revoke access at any time.")}</span></li>
+          <li><span>•</span><span>{l("本地模型（Ollama/LM Studio/vLLM）可在没有任何云端 Key 的情况下完成分析。", "A local model (Ollama/LM Studio/vLLM) can analyze without any cloud key.")}</span></li>
+          <li><span>•</span><span>{l("问题反馈：请从发布渠道的支持入口提交，并附上诊断页复制的脱敏信息；不要粘贴 Key。", "Feedback: use the support entry from your release channel and attach redacted diagnostics; never paste keys.")}</span></li>
+        </ul>
+      </Section>
+
       <Section title={l("如何获取 API Key", "How to get an API key")} subtitle={l("harness2-morphd 不代理、不转售模型调用；你直接与服务商结算。", "harness2-morphd does not proxy or resell model calls; you settle directly with the provider.")}>
         <div className="grid-3">
           {KEY_HELP.map((item) => (
@@ -80,9 +129,9 @@ export function Help() {
             )}
           </InfoNote>
           <div className="grid-3">
-            <div className="fact"><strong>dsh</strong>wrapper / 原生插件（按能力）</div>
-            <div className="fact"><strong>Claude Code</strong>SessionEnd hook / wrapper</div>
-            <div className="fact"><strong>Codex</strong>wrapper；原生 sandbox，不使用 bypass</div>
+            <div className="fact"><strong>dsh</strong>{l("wrapper / 原生插件（按能力）", "wrapper / native plugin when available")}</div>
+            <div className="fact"><strong>Claude Code</strong>{l("SessionEnd hook / wrapper", "SessionEnd hook / wrapper")}</div>
+            <div className="fact"><strong>Codex</strong>{l("wrapper；原生 sandbox，不使用 bypass", "wrapper; native sandbox, no bypass")}</div>
           </div>
         </div>
       </Section>
@@ -174,7 +223,7 @@ export function Help() {
         <div className="grid-2">
           <div className="stack-sm">
             <span className="small strong">harness2-morphd</span>
-            <span className="sub">{l("本地优先的 Agent harness 自动优化。", "Local-first automatic agent harness improvement.")}</span>
+            <span className="sub">{l("本地优先的 Agent 工作方式自动优化。", "Local-first automatic improvement of how your agent works.")}</span>
             <Badge variant="accent">{app.status?.app_version || "0.5.0"}</Badge>
           </div>
           <div className="stack-sm">

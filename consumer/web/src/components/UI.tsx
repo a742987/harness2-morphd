@@ -14,7 +14,7 @@ import {
 import { createPortal } from "react-dom";
 import { ApiError } from "../api";
 import { humanError, TERMS, useL, useLang, type HumanError } from "../i18n";
-import type { Toast } from "../state";
+import { useApp, type Toast } from "../state";
 import { Icon, type IconName } from "./Icon";
 
 export function Button({
@@ -269,22 +269,49 @@ export function RadioCards<T extends string>({
   options,
   onChange,
   label,
+  disabled = false,
 }: {
   value: T;
   options: { value: T; title: string; description: string; detail?: string }[];
   onChange: (value: T) => void;
   label: string;
+  disabled?: boolean;
 }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const focusAt = (index: number) => {
+    const next = (index + options.length) % options.length;
+    const option = options[next];
+    onChange(option.value);
+    refs.current[next]?.focus();
+  };
   return (
     <div className="radio-cards" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
+      {options.map((option, index) => (
         <button
           key={option.value}
+          ref={(node) => {
+            refs.current[index] = node;
+          }}
           type="button"
           role="radio"
           aria-checked={value === option.value}
+          tabIndex={value === option.value ? 0 : -1}
+          disabled={disabled}
           className={`radio-card ${value === option.value ? "is-active" : ""}`}
           onClick={() => onChange(option.value)}
+          onKeyDown={(event) => {
+            if (disabled) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+              event.preventDefault();
+              focusAt(index + 1);
+            } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+              event.preventDefault();
+              focusAt(index - 1);
+            } else if (event.key === " " || event.key === "Enter") {
+              event.preventDefault();
+              onChange(option.value);
+            }
+          }}
         >
           <span className="radio-dot" aria-hidden="true">
             {value === option.value ? <span className="radio-dot-inner" /> : null}
@@ -437,11 +464,27 @@ export function ErrorBanner({
         <p>{human.why}</p>
         <p>{human.action}</p>
         <p className="error-money">{human.money}</p>
-        {onRetry ? (
-          <Button size="sm" variant="ghost" icon="refresh" onClick={onRetry}>
-            {l("重试", "Retry")}
-          </Button>
-        ) : null}
+        <div className="row">
+          {onRetry ? (
+            <Button size="sm" variant="ghost" icon="refresh" onClick={onRetry}>
+              {l("重试", "Retry")}
+            </Button>
+          ) : null}
+          <CopyButton
+            label={l("复制诊断信息", "Copy diagnostics")}
+            text={JSON.stringify(
+              {
+                code: error instanceof ApiError ? error.code : "HUMAN_ERROR",
+                what: human.what,
+                why: human.why,
+                action: human.action,
+                money: human.money,
+              },
+              null,
+              2,
+            )}
+          />
+        </div>
       </div>
     </div>
   );
@@ -500,16 +543,41 @@ export function Tabs<T extends string>({
   onChange: (value: T) => void;
   label: string;
 }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const focusAt = (index: number) => {
+    const next = (index + tabs.length) % tabs.length;
+    onChange(tabs[next].value);
+    refs.current[next]?.focus();
+  };
   return (
     <div className="tabs" role="tablist" aria-label={label}>
-      {tabs.map((tab) => (
+      {tabs.map((tab, index) => (
         <button
           key={tab.value}
+          ref={(node) => {
+            refs.current[index] = node;
+          }}
           role="tab"
           type="button"
           aria-selected={value === tab.value}
+          tabIndex={value === tab.value ? 0 : -1}
           className={`tab ${value === tab.value ? "is-active" : ""}`}
           onClick={() => onChange(tab.value)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+              event.preventDefault();
+              focusAt(index + 1);
+            } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+              event.preventDefault();
+              focusAt(index - 1);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              focusAt(0);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              focusAt(tabs.length - 1);
+            }
+          }}
         >
           {tab.label}
           {typeof tab.count === "number" ? <span className="tab-count">{tab.count}</span> : null}
@@ -520,9 +588,10 @@ export function Tabs<T extends string>({
 }
 
 export function Term({ name, children }: { name: string; children: ReactNode }) {
+  const app = useApp();
   const lang = useLang();
   const term = TERMS[name];
-  if (!term) return <>{children}</>;
+  if (!term || !app.settings?.ui.terminology_tooltips) return <>{children}</>;
   return (
     <abbr className="term" title={lang === "zh" ? term.zh : term.en}>
       {children}

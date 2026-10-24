@@ -9,8 +9,9 @@ thin:
 - no elevation prompt;
 - no API keys in npm config, environment, logs, or cache.
 
-The engine comes from `@harness2-morphd/win32-x64`, an explicit `MORPHD_ENGINE_BIN`, or,
-for development only, `python -m morphd`.
+The engine comes from `@harness2-morphd/win32-x64` (SHA-256 verified) or an explicit
+`MORPHD_ENGINE_BIN`. Python source execution is development-only and requires
+`MORPHD_ALLOW_PYTHON_ENGINE=1`.
 
 ```powershell
 npx @harness2-morphd/cli@latest setup
@@ -20,7 +21,8 @@ npx @harness2-morphd/cli@latest uninstall
 ```
 
 `setup` adapts a detected Harness and opens the temporary local UI for the three-step
-guide. Press Ctrl+C after finishing the guide; the installer never stays resident.
+guide. Finishing the guide closes the temporary installer UI; it never stays resident. If no
+host is found, the UI still opens so you can choose a folder manually.
 
 `npx` leaves no global package. `npm i -g @harness2-morphd/cli` is optional and can be upgraded
 or removed normally.

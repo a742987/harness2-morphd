@@ -55,6 +55,18 @@ def _is_local_url(base_url: str) -> bool:
         return False
 
 
+def _redact_payload(value):
+    """Redact credential shapes from every string sent to a model provider."""
+    if isinstance(value, str):
+        cleaned, _labels = sanitize.redact_text(value)
+        return cleaned
+    if isinstance(value, list):
+        return [_redact_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_payload(item) for key, item in value.items()}
+    return value
+
+
 def validate_provider(payload: dict, *, provider_id: str = "") -> dict:
     if not isinstance(payload, dict):
         raise ConsumerError("INVALID_REQUEST", "服务商配置必须是对象。", "检查输入。")
@@ -191,6 +203,7 @@ class ProviderClient:
         self.provider = provider
         self.key = key or ""
         self.timeout = int(provider.get("timeout_s", DEFAULT_TIMEOUT) or DEFAULT_TIMEOUT)
+        self.test_mode = False
         self._opener = urllib.request.build_opener()
 
     # --- wire formats ---------------------------------------------------------
@@ -213,6 +226,11 @@ class ProviderClient:
         return headers
 
     def _post(self, url: str, payload: dict, *, retries: int = 2) -> tuple[dict, int]:
+        if self.test_mode:
+            # Connection tests must not hammer the provider; PRD 10.3 forbids automatic
+            # retries after a test failure.
+            retries = 0
+        payload = _redact_payload(payload)
         data = json.dumps(payload).encode("utf-8")
         last: Exception | None = None
         for attempt in range(retries + 1):
@@ -295,8 +313,27 @@ class ProviderClient:
                 "稍后重试，或降低分析频率。",
                 details={"status": status, "detail": detail},
             )
+        lowered = body.lower()
+        if status == 400 and any(
+            token in lowered
+            for token in (
+                "content_policy",
+                "content policy",
+                "safety",
+                "refus",
+                "blocked by",
+                "moderation",
+            )
+        ):
+            return ConsumerError(
+                "PROVIDER_CONTENT_REFUSED",
+                "服务商以内容安全策略拒绝了这次请求。",
+                "调整项目内容或改用允许该内容的模型；morphd 不会换模型绕过拒绝。",
+                details={"status": status, "detail": detail},
+            )
+        code = "PROVIDER_INVALID_REQUEST" if 400 <= status < 500 else "PROVIDER_UNAVAILABLE"
         return ConsumerError(
-            "PROVIDER_UNAVAILABLE",
+            code,
             f"模型服务返回 {status}。",
             "检查服务商状态和模型配置。",
             details={"status": status, "detail": detail},
@@ -584,6 +621,7 @@ class ProviderClient:
         key = temporary_key if temporary_key is not None else self.key
         if temporary_key is not None:
             self.key = temporary_key
+        self.test_mode = True
         steps: list[dict] = []
         started = time.monotonic()
         tokens_cost = 0.0
@@ -712,6 +750,7 @@ class ProviderClient:
             }
         finally:
             self.key = key
+            self.test_mode = False
 
 
 class ProvidersManager:
@@ -719,21 +758,68 @@ class ProvidersManager:
         self.store = store
         self.keyvault = KeyVault(store.home)
 
+    LEGACY_SECRET_FIELDS = ("api_key", "apikey", "secret", "password", "authorization")
+
     def _load(self) -> dict:
         raw = self.store.read_json(self.store.providers_path, default={"version": 1, "providers": []})
         if not isinstance(raw, dict):
             raw = {"version": 1, "providers": []}
-        raw.setdefault("providers", [])
+        entries = raw.setdefault("providers", [])
+        if not isinstance(entries, list):
+            entries = []
+            raw["providers"] = entries
+        changed = False
+        for provider in entries:
+            if not isinstance(provider, dict):
+                continue
+            secret = ""
+            for name in self.LEGACY_SECRET_FIELDS:
+                value = provider.pop(name, None)
+                if value and not secret:
+                    secret = str(value).strip()
+                if value is not None:
+                    changed = True
+            if secret and not provider.get("key_ref"):
+                try:
+                    ref, hint = self.keyvault.set(str(provider.get("id") or new_id("p")), secret)
+                    provider["key_ref"] = ref
+                    provider["key_hint"] = hint
+                except ConsumerError:
+                    # A locked vault must not make the provider list unreadable; the
+                    # plaintext was still removed from the returned record.
+                    pass
+        if changed:
+            self._save(raw)
         return raw
 
     def _save(self, payload: dict) -> None:
         with self.store.lock("providers"):
             self.store.write_json(self.store.providers_path, payload)
 
+    PUBLIC_FIELDS = (
+        "id",
+        "label",
+        "protocol",
+        "base_url",
+        "model",
+        "context_window",
+        "max_output",
+        "supports_tools",
+        "supports_json",
+        "price",
+        "data_policy",
+        "data_policy_ack",
+        "help_url",
+        "local",
+        "key_hint",
+        "created_at",
+        "updated_at",
+    )
+
     def public_providers(self, *, include_ref: bool = False) -> list[dict]:
         out = []
         for provider in self._load().get("providers", []):
-            item = {k: v for k, v in provider.items() if k != "key_ref"}
+            item = {key: provider.get(key) for key in self.PUBLIC_FIELDS if key in provider}
             item["has_key"] = bool(provider.get("key_ref"))
             item["key_hint"] = provider.get("key_hint", "")
             if include_ref:
@@ -808,6 +894,16 @@ class ProvidersManager:
         providers["providers"] = kept
         self._save(providers)
         self.store.append_log("provider_deleted", provider_id=provider_id)
+
+    def delete_all(self) -> dict:
+        providers = self._load()
+        removed = [str(provider.get("id") or "") for provider in providers["providers"]]
+        for provider in providers["providers"]:
+            self.keyvault.delete(provider.get("key_ref"))
+        providers["providers"] = []
+        self._save(providers)
+        self.store.append_log("providers_deleted", count=len(removed))
+        return {"ok": True, "deleted": len(removed), "ids": removed}
 
     def test(self, provider_id: str | None, payload: dict | None, temporary_key: str | None = None) -> dict:
         if provider_id:

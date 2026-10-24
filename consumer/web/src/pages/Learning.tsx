@@ -39,6 +39,7 @@ export function Learning() {
   const [error, setError] = useState<unknown>(null);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const [confirmTrust, setConfirmTrust] = useState<Settings["trust_level"] | null>(null);
+  const [confirmAppetite, setConfirmAppetite] = useState<Settings["change_appetite"] | null>(null);
   const [projectEditor, setProjectEditor] = useState<ProjectSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const electron = Boolean((window as unknown as { morphd?: unknown }).morphd);
@@ -55,8 +56,30 @@ export function Learning() {
 
   const saveCadence = (patch: Partial<Settings["cadence"]>) =>
     save({ cadence: { ...settings.cadence, ...patch } });
-  const saveTrust = (trust: Settings["trust_level"]) =>
-    save({ trust_level: trust, auto_apply: trust === "observer" || trust === "advisor" ? false : settings.auto_apply });
+  const saveTrust = (trust: Settings["trust_level"]) => {
+    const patch: Partial<Settings> = {
+      trust_level: trust,
+      auto_apply: trust === "observer" || trust === "advisor" ? false : settings.auto_apply,
+    };
+    if (trust === "autopilot") {
+      patch.auto_apply = true;
+      patch.autopilot_ack = true;
+      patch.undo_days = Math.max(30, settings.undo_days);
+      patch.change_appetite = "conservative";
+    }
+    if (trust === "assistant" && settings.change_appetite !== "conservative") {
+      patch.autopilot_ack = true;
+    }
+    return save(patch);
+  };
+  const chooseAppetite = (appetite: Settings["change_appetite"]) => {
+    if (settings.trust_level === "assistant" && appetite !== "conservative") {
+      setConfirmAppetite(appetite);
+      return;
+    }
+    if (settings.trust_level === "autopilot") return;
+    void save({ change_appetite: appetite });
+  };
   const setAutoApply = async (enabled: boolean) => {
     if (enabled) {
       setConfirmAuto(true);
@@ -106,9 +129,14 @@ export function Learning() {
   const resume = async () => {
     setBusy(true);
     try {
-      await api.resume();
+      const result = await api.resume();
       await app.refreshAll(true);
-      app.toast("ok", "自动学习已恢复", "Learning resumed");
+      const skipped = Number((result as { state?: { last_vacation_skipped?: number } }).state?.last_vacation_skipped || 0);
+      app.toast(
+        "ok",
+        skipped > 0 ? `自动学习已恢复；休假期间未分析 ${skipped} 次会话` : "自动学习已恢复",
+        skipped > 0 ? `Learning resumed; ${skipped} session(s) were skipped during vacation` : "Learning resumed",
+      );
     } catch (caught) {
       setError(caught);
       app.handleError(caught);
@@ -219,7 +247,8 @@ export function Learning() {
           />
           <RadioCards
             value={settings.change_appetite}
-            onChange={(next) => void save({ change_appetite: next })}
+            onChange={chooseAppetite}
+            disabled={settings.trust_level === "autopilot"}
             label={l("变更幅度", "Change appetite")}
             options={[
               { value: "conservative", title: l("保守（默认）", "Conservative (default)"), description: l(APPETITE_LIMITS.conservative.zh, APPETITE_LIMITS.conservative.en), detail: `${APPETITE_LIMITS.conservative.files} ${l("个文件 /", "file /")} ${APPETITE_LIMITS.conservative.lines} ${l("行", "lines")}` },
@@ -300,10 +329,31 @@ export function Learning() {
               >
                 <option value="any">{l("任意时间", "Anytime")}</option>
                 <option value="quiet">{l("仅静默时段", "Quiet hours only")}</option>
-                <option value="custom">{l("自定义（使用静默时段）", "Custom (use quiet hours)")}</option>
+                <option value="custom">{l("自定义时段", "Custom window")}</option>
               </Select>
             </Field>
           </div>
+          {settings.auto_apply_window === "custom" ? (
+            <div className="quiet-row">
+              <Input
+                type="time"
+                aria-label={l("自动应用开始", "Auto-apply start")}
+                value={settings.cadence.auto_apply_window_start}
+                onChange={(event) =>
+                  void saveCadence({ auto_apply_window_start: event.target.value })
+                }
+              />
+              <span aria-hidden="true">—</span>
+              <Input
+                type="time"
+                aria-label={l("自动应用结束", "Auto-apply end")}
+                value={settings.cadence.auto_apply_window_end}
+                onChange={(event) =>
+                  void saveCadence({ auto_apply_window_end: event.target.value })
+                }
+              />
+            </div>
+          ) : null}
           <Toggle
             checked={settings.auto_rollback}
             onChange={(next) => void save({ auto_rollback: next })}
@@ -550,7 +600,7 @@ export function Learning() {
             checked={settings.ui.beginner}
             onChange={(next) => void save({ ui: { ...settings.ui, beginner: next } })}
             label={l("新手模式（用生活语言解释）", "Beginner mode (plain language)")}
-            hint={l("主文案不出现 harness、proposal、bootstrap CI 等内部术语；术语有解释。", "Primary copy avoids internal terms such as harness, proposal, or bootstrap CI.")}
+            hint={l("主文案不出现内部术语；必需术语有解释。", "Primary copy avoids internal jargon; required terms are explained.")}
           />
           <Toggle
             checked={settings.ui.terminology_tooltips}
@@ -558,6 +608,33 @@ export function Learning() {
             label={l("术语提示", "Terminology tooltips")}
             hint={l("必需术语使用下划虚线，可查看简短解释。", "Required terms are dashed-underlined with a short explanation.")}
           />
+          <Toggle
+            checked={settings.ui.screen_reader_optimized}
+            onChange={(next) => void save({ ui: { ...settings.ui, screen_reader_optimized: next } })}
+            label={l("屏幕阅读器优化", "Screen-reader optimization")}
+            hint={l("为图标补充文本、保留状态播报与完整表格文本等价物。", "Adds text for icons and keeps status announcements and table text equivalents.")}
+          />
+          <Field
+            label={l("快照保留数量（每个项目）", "Snapshots kept per project")}
+            hint={l("默认保留最近 10 份；最早的一份始终保留用于恢复原始工作方式。", "Keeps the latest 10 by default; the earliest is always kept for Restore original.")}
+            htmlFor="snapshot-limit"
+          >
+            <Input
+              id="snapshot-limit"
+              type="number"
+              min={5}
+              max={50}
+              value={settings.privacy.snapshot_limit}
+              onChange={(event) =>
+                void save({
+                  privacy: {
+                    ...settings.privacy,
+                    snapshot_limit: Math.max(5, Math.min(50, Number(event.target.value) || 10)),
+                  },
+                })
+              }
+            />
+          </Field>
           <p className="sub">
             {l(
               "日期、货币与按键提示自动跟随语言；键盘焦点、屏幕阅读器语义和减少动画由系统设置与上方选项共同决定。",
@@ -613,8 +690,8 @@ export function Learning() {
         >
           <p>
             {l(
-              "开启后，通过安全检查的低风险改动会直接写入你的 harness，并进入试用观察。",
-              "Safe, low-risk changes will be written directly into your harness and enter a trial.",
+              "开启后，通过安全检查的低风险改动会直接写入你的 Agent 工作方式文件，并进入试用观察。",
+              "Safe, low-risk changes will be written directly into your agent files and enter a trial.",
             )}
           </p>
           <ul className="step-list">
@@ -645,6 +722,40 @@ export function Learning() {
             {l(
               "它不能做：修改权限/沙箱/hooks/settings/MCP、读取凭据、访问 workspace 之外的路径。所有应用都有快照与撤销入口。",
               "It cannot: change permissions/sandbox/hooks/settings/MCP, read credentials, or touch paths outside the workspace. Every apply has a snapshot and revert entry.",
+            )}
+          </p>
+        </ConfirmDialog>
+      ) : null}
+
+      {confirmAppetite ? (
+        <ConfirmDialog
+          title={l("扩大自动改动范围？", "Widen automatic changes?")}
+          confirmLabel={l("确认幅度", "Confirm")}
+          onConfirm={async () => {
+            setBusy(true);
+            const ok = await save({
+              change_appetite: confirmAppetite,
+              autopilot_ack: true,
+            });
+            setBusy(false);
+            if (ok) {
+              setConfirmAppetite(null);
+              app.toast("ok", "变更幅度已更新", "Change appetite updated");
+            }
+          }}
+          onClose={() => setConfirmAppetite(null)}
+          busy={busy}
+        >
+          <p>
+            {l(
+              `在“助手”等级下选择${confirmAppetite === "balanced" ? "均衡" : "大胆"}幅度，低风险改动会自动应用的范围会扩大。`,
+              `At the Assistant level, choosing ${confirmAppetite} widens what can auto-apply.`,
+            )}
+          </p>
+          <p className="sub">
+            {l(
+              "仍然永久禁止修改权限、沙箱、hooks、settings、MCP 或读取凭据；每次自动应用都有快照、通知与撤销入口。",
+              "Permission, sandbox, hooks, settings, MCP, and credential access remain permanently forbidden. Every auto-apply has a snapshot, notification, and revert entry.",
             )}
           </p>
         </ConfirmDialog>

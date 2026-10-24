@@ -192,17 +192,17 @@ class TaskContract:
             if hidden:
                 for key in ("text", "pattern"):
                     val = check.get(key)
-                    if isinstance(val, str) and len(val.strip()) >= 4:
+                    if isinstance(val, str) and val.strip():
                         terms.append(val.strip())
             if kind == "file_sha256" and isinstance(check.get("sha256"), str):
                 terms.append(check["sha256"])
             if kind == "file_regex" and isinstance(check.get("pattern"), str):
-                if len(check["pattern"].strip()) >= 8:
+                if check["pattern"].strip():
                     terms.append(check["pattern"].strip())
             if kind == "json_equals":
                 val = check.get("value")
                 rendered = store.canonical_json(val) if not isinstance(val, str) else val.strip()
-                if len(rendered) >= 4:
+                if rendered:
                     terms.append(rendered)
         return sorted(set(terms))
 

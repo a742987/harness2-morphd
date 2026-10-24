@@ -22,8 +22,97 @@ from .session_import import end_reason_from_exit
 
 
 def server_info(home: Path) -> dict | None:
-    payload = engine_store.read_json(Path(home) / "runtime" / "server.json")
-    return payload if isinstance(payload, dict) else None
+    runtime = Path(home) / "runtime"
+    payload = engine_store.read_json(runtime / "server.json")
+    if isinstance(payload, dict) and winproc.pid_alive(payload.get("pid")):
+        return payload
+    servers = runtime / "servers"
+    candidates = []
+    if servers.is_dir():
+        for path in servers.glob("*.json"):
+            info = engine_store.read_json(path)
+            if not isinstance(info, dict):
+                continue
+            if not winproc.pid_alive(info.get("pid")):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                continue
+            candidates.append(info)
+    if not candidates:
+        return None
+    newest = max(candidates, key=lambda item: str(item.get("started_at") or ""))
+    engine_store.atomic_write_json(runtime / "server.json", newest)
+    return newest
+
+
+def _host_record_path(home: Path, kind: str) -> Path:
+    return Path(home) / "runtime" / "hosts" / f"{kind}-{os.getpid()}.json"
+
+
+def _register_host(home: Path, kind: str, child_pid: int) -> Path:
+    path = _host_record_path(home, kind)
+    engine_store.atomic_write_json(
+        path,
+        {
+            "version": 1,
+            "host": kind,
+            "pid": os.getpid(),
+            "child_pid": int(child_pid),
+            "started_at": engine_store.utc_now(),
+        },
+    )
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
+
+def _unregister_host(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def _active_host_count(home: Path) -> int:
+    root = Path(home) / "runtime" / "hosts"
+    count = 0
+    if not root.is_dir():
+        return 0
+    for path in root.glob("*.json"):
+        payload = engine_store.read_json(path)
+        if isinstance(payload, dict) and (
+            winproc.pid_alive(payload.get("pid")) or winproc.pid_alive(payload.get("child_pid"))
+        ):
+            count += 1
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    return count
+
+
+def _tray_pid_path(home: Path) -> Path:
+    return Path(home) / "runtime" / "tray.pid"
+
+
+def _live_tray_pid(home: Path) -> int | None:
+    path = _tray_pid_path(home)
+    try:
+        pid = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    if winproc.pid_alive(pid):
+        return pid
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return None
 
 
 def send_internal(event: str, payload: dict, *, home: Path | None = None, timeout: float = 10.0) -> bool:
@@ -78,12 +167,18 @@ def normalize_hook_payload(host: str, payload: dict) -> dict:
 
 class HostRuntime:
     def __init__(
-        self, service: ConsumerService, *, quiet: bool = False, start_worker: bool = True
+        self,
+        service: ConsumerService,
+        *,
+        quiet: bool = False,
+        start_worker: bool = True,
+        open_browser: bool = False,
     ):
         self.service = service
         self.server = LocalServer(service)
         self.quiet = quiet
         self.start_worker = start_worker
+        self.open_browser = open_browser
         self._stop = False
 
     @property
@@ -96,6 +191,10 @@ class HostRuntime:
         url = self.server.start()
         if not self.quiet:
             print(f"morphd UI: {url}", file=sys.stderr, flush=True)
+        if self.open_browser:
+            import webbrowser
+
+            threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
         return url
 
     def stop(self) -> None:
@@ -146,9 +245,11 @@ def run_host(
     previous_int = signal.signal(signal.SIGINT, _on_signal)
     previous_term = signal.signal(signal.SIGTERM, _on_signal)
     previous_break = signal.signal(signal.SIGBREAK, _on_signal) if hasattr(signal, "SIGBREAK") else None
+    host_record: Path | None = None
     try:
         try:
             proc = subprocess.Popen(winproc.command_line(binary, args), env=env)
+            host_record = _register_host(home, kind, proc.pid)
         except OSError as exc:
             raise ConsumerError(
                 "HOST_NOT_FOUND",
@@ -196,7 +297,17 @@ def run_host(
         signal.signal(signal.SIGTERM, previous_term)
         if previous_break is not None:
             signal.signal(signal.SIGBREAK, previous_break)
+        if host_record is not None:
+            _unregister_host(host_record)
         runtime.stop()
+        if _active_host_count(home) == 0:
+            tray_pid = _live_tray_pid(home)
+            if tray_pid is not None:
+                winproc.terminate_pid(tray_pid)
+                try:
+                    _tray_pid_path(home).unlink()
+                except OSError:
+                    pass
 
 
 def _maybe_spawn_tray(service: ConsumerService, home: Path) -> subprocess.Popen | None:
@@ -217,26 +328,58 @@ def _maybe_spawn_tray(service: ConsumerService, home: Path) -> subprocess.Popen 
     else:
         command = [sys.executable, "-m", "morphd"]
     try:
-        return subprocess.Popen(
-            [*command, "tray", "--home", str(home)],
-            env={**os.environ, "MORPHD_HOME": str(home)},
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError:
+        with engine_store.file_lock(home / "runtime" / "tray.spawn.lock"):
+            if _live_tray_pid(home) is not None:
+                return None
+            proc = subprocess.Popen(
+                [*command, "tray", "--home", str(home)],
+                env={**os.environ, "MORPHD_HOME": str(home)},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                _tray_pid_path(home).write_text(str(proc.pid), encoding="utf-8")
+            except OSError:
+                pass
+            return proc
+    except Exception:
         return None
 
 
-def run_server(home: Path | None = None, *, quiet: bool = False, config_only: bool = False) -> int:
+def run_server(
+    home: Path | None = None,
+    *,
+    quiet: bool = False,
+    config_only: bool = False,
+    open_browser: bool = False,
+    exit_on_setup: bool = False,
+) -> int:
     home = home or Path(os.environ.get("MORPHD_HOME", Path.home() / ".morphd"))
+    setup_marker = Path(home) / "runtime" / "setup-complete"
+    if exit_on_setup:
+        try:
+            setup_marker.unlink()
+        except FileNotFoundError:
+            pass
     service = ConsumerService(home)
-    runtime = HostRuntime(service, quiet=quiet, start_worker=not config_only)
+    runtime = HostRuntime(
+        service,
+        quiet=quiet,
+        start_worker=not config_only,
+        open_browser=open_browser,
+    )
     try:
         runtime.start()
         while True:
             if (home / "runtime" / "shell-quit").exists():
                 try:
                     (home / "runtime" / "shell-quit").unlink()
+                except OSError:
+                    pass
+                return 0
+            if exit_on_setup and setup_marker.exists():
+                try:
+                    setup_marker.unlink()
                 except OSError:
                     pass
                 return 0
@@ -289,6 +432,14 @@ def _dsh_idle_watcher(service: ConsumerService, home: Path, *, idle_seconds: int
                     if st.st_mtime < started_at - 5:
                         continue
                     if now - st.st_mtime < idle_seconds:
+                        try:
+                            active = tasksource.read_session(path)
+                            if active.events and active.events[-1].get("type") != "turn/end":
+                                service.session_start(
+                                    {"host": "dsh", "session_id": active.session_id}
+                                )
+                        except Exception:
+                            pass
                         continue
                     try:
                         finding = tasksource.read_session(path)
@@ -298,6 +449,14 @@ def _dsh_idle_watcher(service: ConsumerService, home: Path, *, idle_seconds: int
                         continue
                     last = finding.events[-1]
                     if last.get("type") != "turn/end":
+                        # A session is still in progress; focus mode must suppress
+                        # proactive suggestions until the session-end event arrives.
+                        try:
+                            service.session_start(
+                                {"host": "dsh", "session_id": finding.session_id}
+                            )
+                        except Exception:
+                            pass
                         continue
                     reason = (last.get("data") or {}).get("reason") or {}
                     kind = reason.get("kind") if isinstance(reason, dict) else ""

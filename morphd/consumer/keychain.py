@@ -62,8 +62,15 @@ class EncryptedVault:
     def unlock(self, passphrase: str) -> None:
         if not passphrase:
             raise ConsumerError("VAULT_LOCKED", "保险库口令不能为空。", "设置一个本地口令。")
+        previous = self._passphrase
         self._passphrase = passphrase
-        self._cache = self._read()
+        try:
+            self._cache = self._read()
+        except Exception:
+            # A failed unlock must not leave the vault looking unlocked.
+            self._passphrase = previous
+            self._cache = None
+            raise
         self.store(force=True)
 
     def lock(self) -> None:

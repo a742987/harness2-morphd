@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .. import store as engine_store
+from . import migrations
 from .errors import StoreError
 
 RECORD_DIRS = (
@@ -49,6 +50,7 @@ class ConsumerStore:
         self.install_path = self.home / "install.json"
         self.runtime_state_path = self.home / "state.json"
         self.budget_journal = self.home / "_budget" / "consumer.jsonl"
+        self.last_migration_report: migrations.MigrationReport | None = None
         self.ensure()
 
     def ensure(self) -> None:
@@ -60,6 +62,22 @@ class ConsumerStore:
             _chmod_private(path, 0o700)
         (self.home / "_budget").mkdir(parents=True, exist_ok=True)
         _chmod_private(self.home / "_budget", 0o700)
+        self.run_migrations()
+
+    def run_migrations(self) -> migrations.MigrationReport:
+        """Bring existing data files to ``CURRENT_VERSION``; safe to call repeatedly."""
+        report = migrations.run_migrations(self.home)
+        self.last_migration_report = report
+        for issue in (*report.warnings, *report.errors):
+            try:
+                self.append_log(
+                    "migration_warning",
+                    path=issue.get("path"),
+                    reason=issue.get("reason"),
+                )
+            except OSError:
+                pass
+        return report
 
     # --- generic JSON ---------------------------------------------------------
     def read_json(self, path: Path, default=None):
@@ -71,7 +89,7 @@ class ConsumerStore:
         if not isinstance(payload, dict):
             raise StoreError("stored records must be JSON objects")
         if "version" not in payload:
-            payload = {**payload, "version": 1}
+            payload = {**payload, "version": migrations.CURRENT_VERSION}
         engine_store.atomic_write_json(path, payload)
         _chmod_private(path, 0o600)
         return path

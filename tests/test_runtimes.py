@@ -139,6 +139,21 @@ def test_claude_unknown_schema_fails_closed(env, add_task, monkeypatch):
     run_dir = env["settings"].runtime_runs_root("claude-code") / "rollouts" / "unknown-1" / "unknown-run"
     meta = json.loads((run_dir / "meta.json").read_text(encoding="utf-8"))
     assert meta["status"] == "failed"
+    # C.3.2/C.3.3: a failed run still carries its required outcome fields as unknown (null),
+    # never omits them or fabricates a value.
+    assert meta["achieved"] is None
+    assert meta["delivered"] is None
+    assert set(meta) >= {
+        "achieved",
+        "delivered",
+        "bucket",
+        "reason",
+        "usage",
+        "cost_usd",
+        "security",
+        "approvals",
+        "replay",
+    }
     assert not (run_dir / ".morphd-complete").exists()
 
 
@@ -151,6 +166,11 @@ def test_unknown_turn_reason_is_n_a_not_failure(env, add_task, monkeypatch):
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["achieved"] is None
     assert metrics["bucket"] == "other"
+    # C.3.3: mapping an unmapped reason to "other" is recorded as an explicit warning.
+    assert metrics["warnings"]
+    assert any("other" in warning for warning in metrics["warnings"])
+    # C.3.3: turn availability is marked rather than silently counted.
+    assert "turns_available" in metrics
 
 
 def test_codex_budget_stops_before_next_turn(env, add_task):
@@ -244,5 +264,22 @@ def test_failed_rollout_is_still_recorded_as_not_achieved(env, add_task, monkeyp
     run_dir = adapter.execute(ref, None, "fail-run")
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     assert metrics["achieved"] is False
-    assert metrics["delivered"] is False
+    assert metrics["delivered"] is None
+    assert metrics["correction_messages"] is None
     assert (run_dir / ".morphd-complete").is_file()
+
+
+def test_dsh_render_degrades_unknown_events_not_silently_dropped():
+    from morphd.runtimes.dsh import render_session_events
+
+    events = [
+        {"type": "user/message", "data": {"message": {"source": {"kind": "user"}, "text": "do it"}}},
+        {"type": "mystery/event", "data": {}},
+        {"type": "step/end", "data": {"turn": 1, "step": 1}},
+    ]
+    rendered = render_session_events(events, obs_trunc=1000)
+    # C.3.7: an unrecognized dsh event must be recorded and degraded, never silently dropped.
+    assert "unrecognized dsh event" in rendered
+    assert "mystery/event" in rendered
+    # Known control events do not become phantom unknown markers.
+    assert rendered.count("unrecognized dsh event") == 1

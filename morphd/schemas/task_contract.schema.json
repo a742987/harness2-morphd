@@ -13,7 +13,8 @@
     "user_turns",
     "expected_deliverables",
     "domain",
-    "source_runtime"
+    "source_runtime",
+    "created_at"
   ],
   "properties": {
     "task_contract": {
@@ -103,11 +104,10 @@
       ]
     },
     "created_at": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
-    "provenance": {
-      "type": "object"
-    }
+    "provenance": {}
   },
   "$defs": {
     "safePath": {
@@ -199,7 +199,8 @@
             },
             "pattern": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "maxLength": 1000
             },
             "hidden": {
               "type": "boolean"

@@ -273,12 +273,28 @@ class CodexAdapter(BaseAdapter):
                 str(workspace),
             ]
         elif continuing:
+            # ``resume`` must keep the same non-bypass sandbox and approval policy as the
+            # first turn; otherwise a continuation would silently run with different
+            # permissions.
             argv = [
                 self._binary(),
                 "resume",
                 str(session_id),
                 prompt_arg,
+                "--model",
+                self.model,
+                "-c",
+                f'model_reasoning_effort="{self.settings.codex_reasoning_effort}"',
+                "--skip-git-repo-check",
+                "--sandbox",
+                "workspace-write",
+                "--ask-for-approval",
+                "never",
                 "--json",
+                "-C",
+                str(workspace),
+                "--add-dir",
+                str(workspace),
             ]
         else:
             argv = self._base_argv(prompt, workspace, ephemeral=ephemeral)

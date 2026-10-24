@@ -86,14 +86,29 @@ class CandidateManager:
                 raise ConsumerError("FORBIDDEN", "自动应用要求自动回滚保持开启。", "先开启自动回滚。")
         current = self.current_tree(candidate)
         digest = tree_digest(current)
+        base_tree = self._load_tree(candidate)
         if digest != candidate.get("base_hash"):
+            # C.4.4: distinguish a manual edit of a file this candidate would overwrite
+            # (APPLY_CONFLICT, keep the candidate so nothing is lost) from unrelated harness
+            # drift that merely invalidates the candidate (CANDIDATE_STALE).
+            conflict = []
+            if isinstance(candidate.get("base_tree"), dict):
+                for rel in candidate.get("files_changed", []) or []:
+                    if (current.get(rel) or "") != (base_tree.get(rel) or ""):
+                        conflict.append(rel)
+            if conflict:
+                raise ConsumerError(
+                    "APPLY_CONFLICT",
+                    "你要应用的文件已被手动修改，直接应用会覆盖这些改动。",
+                    "先处理冲突文件，或重新分析生成新的建议。",
+                    details={"conflicts": conflict},
+                )
             self._set_state(candidate, "reverted", error="stale")
             raise ConsumerError(
                 "CANDIDATE_STALE",
                 "harness 已经变化，这条建议基于旧版本，不能直接应用。",
                 "重新分析，或查看历史对比。",
             )
-        base_tree = self._load_tree(candidate)
         check = check_candidate(
             runtime=candidate["host"],
             base_tree=base_tree,
@@ -113,16 +128,22 @@ class CandidateManager:
             reason="apply",
             candidate_id=candidate_id,
         )
+        changed = {
+            rel: (candidate.get("candidate_tree") or {})[rel]
+            for rel in candidate.get("files_changed", []) or []
+            if rel in (candidate.get("candidate_tree") or {})
+        }
         try:
             self.hosts.apply_tree(
                 candidate["host"],
-                candidate.get("candidate_tree") or {},
+                changed,
                 project_root=candidate.get("project"),
             )
         except Exception:
             self.snapshots.restore(snapshot)
             raise
         applied_hash = tree_digest(self.current_tree(candidate))
+        baseline = self.baseline(candidate)
         candidate.update(
             {
                 "state": "applied",
@@ -130,21 +151,21 @@ class CandidateManager:
                 "snapshot_id": snapshot["id"],
                 "applied_hash": applied_hash,
                 "applied_files": {
-                    rel: engine_store.sha256_text(text)
-                    for rel, text in (candidate.get("candidate_tree") or {}).items()
+                    rel: engine_store.sha256_text(text) for rel, text in changed.items()
                 },
                 "base_tree": base_tree,
                 "safety": check.to_dict(),
                 "automatic": bool(automatic),
                 "trial": {
                     "n": 0,
-                    "baseline": self._baseline(candidate),
+                    "baseline": baseline,
                     "observed": [],
                     "started_at": _now(),
                 },
             }
         )
         self.store.write_record("candidates", candidate_id, candidate)
+        self._sync_job(candidate)
         self.store.append_log(
             "candidate_applied",
             candidate_id=candidate_id,
@@ -178,7 +199,8 @@ class CandidateManager:
         if not snapshot_id:
             raise ConsumerError("NOT_FOUND", "没有找到这条建议的快照。", "无法安全撤销。")
         snapshot = self.snapshots.get(snapshot_id)
-        for rel, expected in (candidate.get("applied_files") or {}).items():
+        applied_files = dict(candidate.get("applied_files") or {})
+        for rel, expected in applied_files.items():
             target = self.hosts.target_for(candidate["host"], rel, project_root=candidate.get("project"))
             if not target.is_file():
                 continue
@@ -189,7 +211,18 @@ class CandidateManager:
                     f"{rel} 在应用后被手动修改过，撤销会覆盖你的改动。",
                     "先备份或提交该文件，再撤销。",
                 )
-        self.snapshots.restore(snapshot)
+        # Restore only the files this candidate touched. Restoring every file captured by
+        # the snapshot would silently overwrite unrelated user edits made after apply.
+        target_rels = set(applied_files) | set(candidate.get("added_files", []) or [])
+        filtered = {
+            **snapshot,
+            "entries": [
+                entry
+                for entry in snapshot.get("entries", [])
+                if str(entry.get("rel")) in target_rels
+            ],
+        }
+        self.snapshots.restore(filtered)
         # Remove files that the candidate created, but only if they still match what we wrote.
         for rel in candidate.get("added_files", []) or []:
             target = self.hosts.target_for(candidate["host"], rel, project_root=candidate.get("project"))
@@ -209,6 +242,7 @@ class CandidateManager:
             }
         )
         self.store.write_record("candidates", candidate_id, candidate)
+        self._sync_job(candidate)
         self.store.append_log("candidate_reverted", candidate_id=candidate_id, reason=reason)
         return candidate
 
@@ -240,13 +274,18 @@ class CandidateManager:
         return {"ok": True, "candidate": candidate, "attention": stats}
 
     # --- trial ---------------------------------------------------------------
-    def _baseline(self, candidate: dict) -> dict:
+    def baseline(self, candidate: dict, *, exclude_session_id: str | None = None) -> dict:
         applied = _parse(candidate.get("applied_at")) or datetime.now(timezone.utc)
         sessions = []
         for session in self.store.list_records("sessions"):
             if session.get("host") != candidate.get("host"):
                 continue
             if session.get("project_id") != candidate.get("project_id"):
+                continue
+            if exclude_session_id and session.get("id") == exclude_session_id:
+                continue
+            # C.4.4: the baseline uses recent non-incognito, non-paused sessions only.
+            if session.get("status") in ("paused", "vacation", "incognito"):
                 continue
             ended = _parse(session.get("ended_at"))
             if ended is None or ended > applied:
@@ -275,6 +314,8 @@ class CandidateManager:
                 continue
             trial = candidate.get("trial") or {}
             observed = list(trial.get("observed") or [])
+            if any(item.get("session_id") == session.get("id") for item in observed):
+                continue
             observed.append(
                 {
                     "session_id": session.get("id"),
@@ -287,9 +328,10 @@ class CandidateManager:
             candidate["trial"] = trial
             candidate["state"] = "trial"
             self.store.write_record("candidates", str(candidate["id"]), candidate)
+            self._sync_job(candidate)
             decision = self._trial_decision(candidate)
             auto_rollback = bool(self.settings_manager.load().get("auto_rollback", True))
-            if decision.get("revert") and not auto_rollback:
+            if decision.get("revert") and not auto_rollback and not decision.get("hard"):
                 decision["auto_rollback_disabled"] = True
                 decision["revert"] = False
             if decision.get("revert"):
@@ -301,6 +343,7 @@ class CandidateManager:
                 candidate["state"] = "kept"
                 candidate["kept_at"] = _now()
                 self.store.write_record("candidates", str(candidate["id"]), candidate)
+                self._sync_job(candidate)
                 decision["candidate"] = candidate
             results.append(decision)
         return results
@@ -318,22 +361,77 @@ class CandidateManager:
         loops = [int((o.get("signals") or {}).get("tool_loops", 0) or 0) for o in last_two]
         base_corr = baseline.get("corrections")
         base_loops = baseline.get("tool_loops")
+        for item in observed:
+            signals = item.get("signals") or {}
+            if signals.get("security_failed") is True:
+                return {
+                    "candidate_id": candidate.get("id"),
+                    "revert": True,
+                    "hard": True,
+                    "reason": "security_failed",
+                }
+            if signals.get("delivered") is False:
+                return {
+                    "candidate_id": candidate.get("id"),
+                    "revert": True,
+                    "hard": True,
+                    "reason": "delivered_false",
+                }
+            if signals.get("crash") is True:
+                return {
+                    "candidate_id": candidate.get("id"),
+                    "revert": True,
+                    "hard": True,
+                    "reason": "host_crash",
+                }
+            if signals.get("user_reverted") is True:
+                return {
+                    "candidate_id": candidate.get("id"),
+                    "revert": True,
+                    "hard": True,
+                    "reason": "user_reverted",
+                }
         if (
             base_corr is not None
             and len(last_two) == 2
             and all(value >= base_corr + 1 for value in corrections)
         ):
-            return {"candidate_id": candidate.get("id"), "revert": True, "reason": "corrections_regressed"}
+            return {
+                "candidate_id": candidate.get("id"),
+                "revert": True,
+                "hard": True,
+                "reason": "corrections_regressed",
+            }
         if (
             base_loops is not None
             and len(last_two) == 2
             and all(value > base_loops for value in loops)
         ):
-            return {"candidate_id": candidate.get("id"), "revert": True, "reason": "tool_loops_regressed"}
-        for item in observed:
-            signals = item.get("signals") or {}
-            if signals.get("crash") is True:
-                return {"candidate_id": candidate.get("id"), "revert": True, "reason": "host_crash"}
+            return {
+                "candidate_id": candidate.get("id"),
+                "revert": True,
+                "hard": True,
+                "reason": "tool_loops_regressed",
+            }
+        applied_at = _parse(candidate.get("applied_at"))
+        undo_days = int(settings.get("undo_days", 7) or 7)
+        if (
+            applied_at is not None
+            and len(observed) < trial_sessions
+            and datetime.now(timezone.utc) > applied_at + timedelta(days=undo_days)
+        ):
+            return {
+                "candidate_id": candidate.get("id"),
+                "revert": True,
+                "hard": True,
+                "reason": "trial_window_expired",
+            }
+        if int(baseline.get("n", 0) or 0) == 0:
+            # No baseline: only hard rollback signals apply. A neutral trial is not evidence
+            # of regression, so keep the candidate instead of guessing.
+            if len(observed) >= trial_sessions:
+                return {"candidate_id": candidate.get("id"), "revert": False, "keep": True, "reason": "no_baseline"}
+            return {"candidate_id": candidate.get("id"), "revert": False, "keep": False}
         if len(observed) >= trial_sessions:
             improvements = 0
             regressions = 0
@@ -391,6 +489,20 @@ class CandidateManager:
         return {"ok": True, "snapshot_id": manifest["id"], "project_id": project["id"]}
 
     # --- helpers -------------------------------------------------------------
+    def _sync_job(self, candidate: dict) -> None:
+        job_id = candidate.get("job_id")
+        if not job_id:
+            return
+        job = self.store.read_record("jobs", str(job_id))
+        if not isinstance(job, dict):
+            return
+        state = str(candidate.get("state") or "")
+        if state in ("applied", "trial", "kept", "reverted", "needs_apply"):
+            job["state"] = state
+            job["candidate_id"] = candidate.get("id")
+            job["updated_at"] = _now()
+            self.store.write_record("jobs", str(job_id), job)
+
     def _set_state(self, candidate: dict, state: str, *, error: str = "") -> None:
         candidate["state"] = state
         if error:

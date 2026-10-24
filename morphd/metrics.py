@@ -50,9 +50,9 @@ class RunFacts:
     usage: dict = field(default_factory=dict)
     usage_present: bool = False
     cost_usd: float | None = None
-    delivered: bool = False
+    delivered: bool | None = None
     convergence_turns: int | None = None
-    correction_messages: int = 0
+    correction_messages: int | None = None
     tool_events: list[dict] = field(default_factory=list)
     final_text: str = ""
 
@@ -112,7 +112,11 @@ def aggregate(rows: list[dict]) -> dict:
         for r in rows
         if r.get("convergence_turns") is not None
     ]
-    corrections = [int(r.get("correction_messages") or 0) for r in rows]
+    corrections = [
+        int(r["correction_messages"])
+        for r in rows
+        if r.get("correction_messages") is not None
+    ]
     turns = [int(r.get("turns") or 0) for r in rows]
     costs = [float(r["cost_usd"]) for r in rows if r.get("cost_usd") is not None]
     buckets = Counter(str(r.get("bucket") or "unavailable") for r in rows)
@@ -124,7 +128,10 @@ def aggregate(rows: list[dict]) -> dict:
         "n_delivered_known": len(delivered_known),
         "convergence_mean": round(sum(converged) / len(converged), 3) if converged else None,
         "n_converged": len(converged),
-        "correction_mean": round(sum(corrections) / n, 3) if n else None,
+        "correction_mean": round(sum(corrections) / len(corrections), 3)
+        if corrections
+        else None,
+        "n_corrections_known": len(corrections),
         "tool_error_loop_rate": _rate(loops, n),
         "turn_efficiency_mean": round(sum(turns) / n, 3) if n else None,
         "cost_usd_sum": round(sum(costs), 6) if costs else None,

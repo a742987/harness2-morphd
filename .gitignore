@@ -11,6 +11,12 @@ htmlcov/
 vendor/harness2-src/build/
 *.egg-info/
 .env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
 .runs/
 .work/
 *~

@@ -13,7 +13,7 @@ from .errors import ConsumerError
 from .hosts import HostManager
 from .settings import ProjectManager, SettingsManager
 from .store import ConsumerStore
-from .util import excluded
+from .util import excluded, is_secret_path
 
 EXPORT_FILES = ("settings", "providers", "projects", "sessions", "jobs", "candidates")
 
@@ -47,16 +47,25 @@ def preview_payload(store: ConsumerStore, session: dict, settings: dict) -> dict
             harness = {}
     files: dict[str, str] = {}
     file_redactions = []
+    skipped: list[str] = []
     for rel, text in sorted(harness.items()):
+        if excluded(rel, globs) or is_secret_path(rel):
+            skipped.append(rel)
+            continue
         cleaned, labels = sanitize.redact_text(text)
-        files[rel] = cleaned
         if labels:
+            # Secret-bearing harness files are excluded from the request instead of being
+            # sent with placeholders that a model could copy back into the real file.
+            skipped.append(rel)
             file_redactions.append({"path": rel, "labels": labels})
-    skipped = [
-        path.relative_to(workspace).as_posix()
-        for path in engine_store.iter_files(workspace)
-        if excluded(path.relative_to(workspace).as_posix(), globs)
-    ][:200] if workspace.is_dir() else []
+            continue
+        files[rel] = cleaned
+    if workspace.is_dir():
+        for path in engine_store.iter_files(workspace):
+            rel = path.relative_to(workspace).as_posix()
+            if excluded(rel, globs) or is_secret_path(rel):
+                skipped.append(rel)
+    skipped = skipped[:200]
     turns = []
     for turn in session.get("user_turns", []) or []:
         text, labels = sanitize.redact_text(str(turn.get("text", "")))
@@ -65,7 +74,7 @@ def preview_payload(store: ConsumerStore, session: dict, settings: dict) -> dict
     payload = {
         "session_id": session.get("id"),
         "host": session.get("host"),
-        "project": session.get("project"),
+        "project": Path(str(session.get("project") or "project")).name,
         "user_turns": turns,
         "trajectory_summary": traj,
         "files": files,
@@ -82,9 +91,21 @@ def preview_payload(store: ConsumerStore, session: dict, settings: dict) -> dict
             + sum(len(t["text"]) for t in turns) // 4
             + len(traj) // 4,
         ),
-        "note": "Workspace source contents are not sent; only the harness context, turns and redacted trajectory.",
+        "note": "Workspace source contents are not sent. Secret-bearing harness files are skipped; turns and trajectory are redacted.",
     }
     return payload
+
+
+def _export_provider(provider: dict) -> dict:
+    """Strip secret-bearing fields even from legacy or hand-edited provider records."""
+    secret_parts = ("api_key", "apikey", "secret", "password", "token", "authorization", "credential")
+    clean = {}
+    for key, value in provider.items():
+        lowered = str(key).lower()
+        if lowered in ("key_ref", "key_hint") or not any(part in lowered for part in secret_parts):
+            clean[key] = value
+    clean["key_ref"] = provider.get("key_ref", "")
+    return clean
 
 
 def export_bundle(store: ConsumerStore) -> dict:
@@ -92,9 +113,7 @@ def export_bundle(store: ConsumerStore) -> dict:
     providers = store.read_json(store.providers_path, default={"version": 1, "providers": []})
     safe_providers = {
         "version": 1,
-        "providers": [
-            {**p, "key_ref": p.get("key_ref", "")} for p in providers.get("providers", [])
-        ],
+        "providers": [_export_provider(p) for p in providers.get("providers", [])],
     }
     snapshots = []
     for manifest in store.list_records("snapshots"):
@@ -107,7 +126,14 @@ def export_bundle(store: ConsumerStore) -> dict:
         "projects": store.list_records("projects"),
         "sessions": store.list_records("sessions"),
         "jobs": store.list_records("jobs"),
-        "candidates": store.list_records("candidates"),
+        "candidates": [
+            {
+                key: value
+                for key, value in candidate.items()
+                if key not in ("base_tree", "candidate_tree", "applied_files")
+            }
+            for candidate in store.list_records("candidates")
+        ],
         "snapshots_manifest": snapshots,
         "note": "API keys are not exported. Snapshot file contents are not included.",
     }
@@ -141,21 +167,28 @@ def delete_scope(
         return record.get("project_id") == project_id
 
     session_ids: set[str] = set()
+    candidate_ids: set[str] = set()
     for record in sessions:
         if match(record):
             session_ids.add(str(record.get("id")))
             store.delete_record("sessions", str(record.get("id")))
             shutil.rmtree(store.home / "sessions" / str(record.get("id")), ignore_errors=True)
             removed["sessions"] += 1
+    for record in candidates:
+        if match(record) or record.get("session_id") in session_ids:
+            candidate_ids.add(str(record.get("id")))
     for record in jobs:
         if match(record) or record.get("session_id") in session_ids:
-            store.delete_record("jobs", str(record.get("id")))
+            jid = str(record.get("id"))
+            store.delete_record("jobs", jid)
+            shutil.rmtree(store.home / "jobs" / jid, ignore_errors=True)
             removed["jobs"] += 1
     for record in candidates:
         if match(record) or record.get("job_id") in {
             j.get("id") for j in jobs if match(j) or j.get("session_id") in session_ids
         }:
             cid = str(record.get("id"))
+            candidate_ids.add(cid)
             store.delete_record("candidates", cid)
             try:
                 (store.home / "diffs" / f"{cid}.diff").unlink()
@@ -164,7 +197,11 @@ def delete_scope(
             shutil.rmtree(store.home / "candidates" / cid, ignore_errors=True)
             removed["candidates"] += 1
     for manifest in store.list_records("snapshots"):
-        if match(manifest):
+        if (
+            match(manifest)
+            or manifest.get("project_id") == project_id
+            or manifest.get("candidate_id") in candidate_ids
+        ):
             sid = str(manifest.get("id"))
             store.delete_record("snapshots", sid)
             shutil.rmtree(store.home / "snapshots" / sid, ignore_errors=True)
@@ -172,13 +209,22 @@ def delete_scope(
     if scope == "project" and project_id:
         ProjectManager(store).delete(project_id)
     if scope == "all":
-        for sub in ("spool", "exports"):
+        for project in store.list_records("projects"):
+            store.delete_record("projects", str(project.get("id")))
+        for sub in ("spool", "exports", "library", "backups", "runtime/cache", "proposals"):
             shutil.rmtree(store.home / sub, ignore_errors=True)
-            (store.home / sub).mkdir(parents=True, exist_ok=True)
-        try:
-            (store.home / "logs" / "events.jsonl").unlink()
-        except FileNotFoundError:
-            pass
+            if sub in ("spool", "exports"):
+                (store.home / sub).mkdir(parents=True, exist_ok=True)
+        for name in ("manual-projects.json", "state.json"):
+            try:
+                (store.home / name).unlink()
+            except FileNotFoundError:
+                pass
+        for path in (store.home / "logs").glob("events*.jsonl"):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
         state = store.runtime_state_path
         try:
             state.unlink()
@@ -228,6 +274,7 @@ def retention_sweep(store: ConsumerStore, *, now: datetime | None = None) -> dic
                 (store.home / "diffs" / f"{cid}.diff").unlink()
             except FileNotFoundError:
                 pass
+            shutil.rmtree(store.home / "candidates" / cid, ignore_errors=True)
             removed["candidates"] += 1
         elif candidate.get("job_id") in deleted_job_ids:
             cid = str(candidate.get("id"))
@@ -236,6 +283,7 @@ def retention_sweep(store: ConsumerStore, *, now: datetime | None = None) -> dic
                 (store.home / "diffs" / f"{cid}.diff").unlink()
             except FileNotFoundError:
                 pass
+            shutil.rmtree(store.home / "candidates" / cid, ignore_errors=True)
             removed["candidates"] += 1
     return removed
 

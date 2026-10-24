@@ -12,7 +12,7 @@ product runs are not supported.
 | Python | 3.12 / 3.13 | Source development and engine build only; end users need no Python. |
 | Node installer | `>=20` | dsh itself needs `^22.19.0` or `>=24.0.0`. |
 | Platform | Windows 10/11 x64 | Electron NSIS/portable and `@harness2-morphd/win32-x64`. |
-| Signing | None in the current release | Authenticode/SmartScreen validation remains pending. |
+| Signing | Optional in release CI; unsigned unless certificate secrets are configured | Authenticode/SmartScreen validation remains pending. |
 
 ## Upgrade rules
 

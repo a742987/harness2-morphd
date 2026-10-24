@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { CandidateCard, CandidateDetailModal } from "../components/Candidate";
+import { CandidateCard, CandidateDetailModal, candidateStateLabel } from "../components/Candidate";
 import {
   Badge,
   Button,
@@ -13,6 +13,7 @@ import {
   PageHeader,
   Progress,
   Section,
+  Select,
   StatusMark,
 } from "../components/UI";
 import { formatMoney, timeAgo, useL, useLang } from "../i18n";
@@ -72,21 +73,43 @@ export function Home() {
     estimated?: number;
   } | null>(null);
   const [whyOpen, setWhyOpen] = useState(false);
+  const [projectFilter, setProjectFilter] = useState("");
+  const feedbackPrompts = app.status?.feedback?.prompts || [];
 
-  const visibleCandidates = app.candidates.filter(
-    (candidate) =>
-      !candidate.feedback?.some((item) => item.reason === "ignore") ||
-      candidate.state !== "needs_apply",
-  );
-  const inbox = visibleCandidates.filter((candidate) => candidate.state === "needs_apply");
+  const respondToFeedback = async (projectId: string, reason: string) => {
+    setBusy(true);
+    try {
+      await api.respondFeedback(projectId, reason);
+      await app.refreshAll(true);
+      app.toast("ok", "已记录你的选择，之后恢复正常提示", "Preference saved; normal suggestions resume");
+    } catch (caught) {
+      app.handleError(caught);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const readyToShow = (candidate: Candidate) =>
+    !candidate.present_after || new Date(candidate.present_after).getTime() <= Date.now();
+  const visibleCandidates = app.candidates
+    .filter(
+      (candidate) =>
+        !candidate.feedback?.some((item) => item.reason === "ignore") ||
+        candidate.state !== "needs_apply",
+    )
+    .filter(readyToShow);
   const learning = app.status?.learning;
   const budget = app.budget;
-  const currentProject = app.projects.find((project) =>
-    app.sessions.some((session) => session.project_id === project.id),
-  ) || app.projects[0];
+  const currentProject = app.projects.find((project) => project.id === projectFilter) ||
+    app.projects.find((project) => app.sessions.some((session) => session.project_id === project.id)) ||
+    app.projects[0];
   const currentSessions = currentProject
     ? app.sessions.filter((session) => session.project_id === currentProject.id)
     : app.sessions;
+  const currentCandidates = currentProject
+    ? visibleCandidates.filter((candidate) => candidate.project_id === currentProject.id)
+    : visibleCandidates;
+  const inbox = currentCandidates.filter((candidate) => candidate.state === "needs_apply");
 
   const last7 = useMemo(() => {
     const days: { key: string; label: string; sessions: number; problems: number; cost: number }[] = [];
@@ -126,12 +149,14 @@ export function Home() {
     const ended = new Date(session.ended_at).getTime();
     return Date.now() - ended < 7 * 86400000;
   });
-  const weekCandidates = app.candidates.filter((candidate) => {
+  const weekCandidates = currentCandidates.filter((candidate) => {
     const created = new Date(candidate.created_at).getTime();
     return Date.now() - created < 7 * 86400000;
   });
-  const applied = app.candidates.filter((candidate) => ["applied", "trial", "kept"].includes(candidate.state));
-  const reverted = app.candidates.filter((candidate) => candidate.state === "reverted");
+  const applied = currentCandidates.filter((candidate) =>
+    ["applied", "trial", "kept"].includes(candidate.state),
+  );
+  const reverted = currentCandidates.filter((candidate) => candidate.state === "reverted");
   const appliedThisWeek = weekCandidates.filter((candidate) => ["applied", "trial", "kept", "reverted"].includes(candidate.state));
 
   const pause = async (until: string) => {
@@ -150,9 +175,14 @@ export function Home() {
   const resume = async () => {
     setBusy(true);
     try {
-      await api.resume();
+      const result = await api.resume();
       await app.refreshAll(true);
-      app.toast("ok", "自动学习已恢复", "Automatic learning resumed");
+      const skipped = Number((result as { state?: { last_vacation_skipped?: number } }).state?.last_vacation_skipped || 0);
+      app.toast(
+        "ok",
+        skipped > 0 ? `自动学习已恢复；休假期间未分析 ${skipped} 次会话` : "自动学习已恢复",
+        skipped > 0 ? `Learning resumed; ${skipped} session(s) were skipped during vacation` : "Automatic learning resumed",
+      );
     } catch (error) {
       const apiError = app.handleError(error);
       if (apiError) app.toast("warn", apiError.message, apiError.message);
@@ -287,23 +317,105 @@ export function Home() {
         }
       />
 
+      {feedbackPrompts.length > 0 ? (
+        <Section
+          title={l("调整建议频率", "Tune suggestion frequency")}
+          subtitle={l(
+            "最近有建议被连续忽略。告诉我们原因，之后会恢复正常展示；你也可以随时改回来。",
+            "Some suggestions were ignored repeatedly. Tell us why and normal delivery resumes; you can change this at any time.",
+          )}
+        >
+          <div className="stack">
+            {feedbackPrompts.map((prompt) => {
+              const project = app.projects.find((item) => item.id === prompt.project_id);
+              return (
+                <div className="list-item" key={prompt.project_id || "default"}>
+                  <div className="list-main">
+                    <span className="list-title wrap-anywhere">
+                      {project?.root || prompt.project_id || l("默认项目", "Default project")}
+                    </span>
+                    <span className="sub">
+                      {l(
+                        `连续忽略 ${prompt.counts.ignore || 0} 次；想怎样调整？`,
+                        `Ignored ${prompt.counts.ignore || 0} times in a row. How should this be adjusted?`,
+                      )}
+                    </span>
+                  </div>
+                  <div className="row">
+                    <Button
+                      size="sm"
+                      onClick={() => void respondToFeedback(prompt.project_id, "intrusive")}
+                      loading={busy}
+                    >
+                      {l("安静 7 天", "Quiet 7 days")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void respondToFeedback(prompt.project_id, "expensive")}
+                      loading={busy}
+                    >
+                      {l("太贵", "Too expensive")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void respondToFeedback(prompt.project_id, "not_useful")}
+                      loading={busy}
+                    >
+                      {l("不相关", "Not relevant")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void respondToFeedback(prompt.project_id, "resume")}
+                      loading={busy}
+                    >
+                      {l("继续正常提示", "Keep normal")}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      ) : null}
+
       <div className="hero mb-24">
         <div className="hero-main">
           <div className="spread">
             <Badge variant="inverse">
               {!app.status?.connected_hosts.length
                 ? l("未连接宿主", "No host connected")
-                : learning?.paused
-                  ? l("已暂停", "Paused")
-                  : learning?.vacation
-                    ? l("休假中", "Vacation")
-                    : l("自动学习中", "Learning")}
+                : !app.settings?.enabled
+                  ? l("自动学习已关闭", "Learning is off")
+                  : learning?.incognito || learning?.incognito_next
+                    ? l("隐身旁路生效", "Incognito active")
+                  : learning?.paused
+                    ? l("已暂停", "Paused")
+                    : learning?.vacation
+                      ? l("休假中", "Vacation")
+                      : l("自动学习中", "Learning")}
             </Badge>
-            <span className="small">
-              {currentProject
-                ? `${currentProject.domain} · ${currentProject.id}`
-                : l("默认项目", "Default project")}
-            </span>
+            {app.projects.length > 1 ? (
+              <Select
+                aria-label={l("切换项目", "Switch project")}
+                value={currentProject?.id || ""}
+                onChange={(event) => setProjectFilter(event.target.value)}
+              >
+                {app.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.domain} · {project.id}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <span className="small">
+                {currentProject
+                  ? `${currentProject.domain} · ${currentProject.id}`
+                  : l("默认项目", "Default project")}
+              </span>
+            )}
           </div>
           <h1>
             {inbox.length > 0
@@ -327,6 +439,16 @@ export function Home() {
             </Button>
             <Button variant="ghost" icon="eye" onClick={incognito} loading={busy}>
               {learning?.incognito_next ? l("取消下一次隐身", "Cancel next-session incognito") : l("下一次会话隐身", "Incognito next session")}
+            </Button>
+            <Button
+              variant="ghost"
+              icon={app.settings?.enabled ? "pause" : "play"}
+              onClick={() => void app.saveSettings({ enabled: !app.settings?.enabled })}
+              loading={busy}
+            >
+              {app.settings?.enabled
+                ? l("关闭自动学习", "Turn learning off")
+                : l("启用自动学习", "Turn learning on")}
             </Button>
           </div>
           <div className="row">
@@ -502,6 +624,41 @@ export function Home() {
           </div>
         </Section>
       </div>
+
+      <Section
+        title={l("已应用，可撤销", "Applied and reversible")}
+        subtitle={l("撤销窗口内可一键恢复；超出窗口请使用“恢复原始工作方式”。", "Revert within the undo window; after that use Restore original.")}
+        actions={
+          <Button size="sm" variant="ghost" onClick={() => app.setPage("history")}>
+            {l("查看全部", "View all")}
+          </Button>
+        }
+      >
+        {applied.length === 0 ? (
+          <p className="sub">{l("还没有应用过改动。", "No change has been applied yet.")}</p>
+        ) : (
+          <div className="list">
+            {applied.slice(0, 3).map((candidate) => (
+              <div className="list-item" key={candidate.id}>
+                <div className="list-main">
+                  <span className="list-title">{candidate.summary}</span>
+                  <span className="sub">
+                    {candidate.files_changed.join(", ")} · {timeAgo(candidate.applied_at, lang)}
+                  </span>
+                </div>
+                <div className="list-actions">
+                  <StatusMark tone={candidate.state === "reverted" ? "idle" : "ok"}>
+                    {candidateStateLabel(candidate.state, lang)}
+                  </StatusMark>
+                  <Button size="sm" variant="ghost" icon="undo" onClick={() => setDetail(candidate.id)}>
+                    {l("查看 / 撤销", "View / Revert")}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
 
       <Section
         title={l("最近的会话", "Recent sessions")}

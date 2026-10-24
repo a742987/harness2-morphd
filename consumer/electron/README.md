@@ -32,6 +32,8 @@ npm start -- --host dsh
 npm run dist -- --win --x64
 ```
 
-Place the engine at `resources/engine/morphd-engine.exe` (or set `MORPHD_ENGINE_BIN`). The
-current release pipeline produces **unsigned** NSIS and portable installers; Authenticode
-signing, SmartScreen reputation and signed updates remain pending.
+For development, set `MORPHD_ENGINE_BIN` to a built engine or install the platform package.
+The release pipeline copies `dist/morphd-engine.exe` together with its `SHA256SUMS` into
+`resources/resources/engine/`, and the packaged shell verifies the checksum before launching
+it. The current release pipeline produces **unsigned** NSIS and portable installers;
+Authenticode signing, SmartScreen reputation and signed updates remain pending.

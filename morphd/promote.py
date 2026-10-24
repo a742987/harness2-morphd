@@ -311,10 +311,8 @@ def _apply_claude(adapter, tree: dict[str, str], target: Path) -> None:
         elif rel.startswith("sub_agents/") and rel.endswith("/AGENT.md"):
             name = rel.split("/")[1]
             store.atomic_write_text(target / ".claude" / "agents" / f"{name}.md", text)
-    store.atomic_write_json(
-        target / ".claude" / "settings.json",
-        {"permissions": {"deny": ["WebFetch", "WebSearch"]}},
-    )
+    # Never write .claude/settings.json here: permissions/settings are outside the
+    # editable surface and promotion must not change them.
 
 
 def render_diff(surface, base_tree: dict[str, str], candidate_tree: dict[str, str], *, limit: int = 6000) -> str:

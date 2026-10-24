@@ -34,6 +34,13 @@ class RuntimeError_(RuntimeError):
     pass
 
 
+def truncate_marked(value, limit: int) -> str:
+    text = str(value)
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit] + f"\n…[truncated {len(text) - limit} chars]"
+
+
 @dataclass
 class Materialised:
     runtime_home: Path
@@ -149,7 +156,11 @@ class BaseAdapter:
                     f"{rel}: {len(body.encode('utf-8'))} bytes exceeds the runtime's hard "
                     f"{max_bytes}-byte truncation limit"
                 )
-        scanned = security.scan_tree_contents(tree)
+        try:
+            base_tree = self._ht.read_tree(self.substrate.surface(), self.base_harness())
+        except Exception:
+            base_tree = {}
+        scanned = security.scan_tree_contents(tree, base_tree=base_tree)
         problems.extend(scanned.violations)
         for finding in scanned.findings:
             problems.append(
@@ -213,6 +224,7 @@ class BaseAdapter:
                         "budget": self.guard.snapshot(),
                     }
                 )
+                self._stamp_missing_outcome(current, bucket="interrupted", reason="budget")
                 self._write_meta(run_dir, current)
                 raise
             except Exception as exc:
@@ -226,6 +238,7 @@ class BaseAdapter:
                         "budget": self.guard.snapshot(),
                     }
                 )
+                self._stamp_missing_outcome(current, bucket="unavailable", reason=str(exc))
                 self._write_meta(run_dir, current)
                 raise
         return result_dir
@@ -248,9 +261,11 @@ class BaseAdapter:
         path = self._trajectory_path(Path(run_dir))
         if not path.is_file():
             return "(no trajectory)"
-        return self.substrate.read_trajectory(
-            path, obs_trunc=obs_trunc, max_chars=max(200_000, obs_trunc * 4)
+        limit = max(200_000, obs_trunc * 4)
+        rendered = self.substrate.read_trajectory(
+            path, obs_trunc=obs_trunc, max_chars=limit
         )
+        return truncate_marked(rendered, limit)
 
     def deliverable_files(self, run_dir: Path) -> dict[str, str]:
         payload = store.read_json(Path(run_dir) / "deliverables" / "files.json") or {}
@@ -436,6 +451,22 @@ class BaseAdapter:
     def _write_meta(self, run_dir: Path, meta: dict) -> None:
         store.atomic_write_json(Path(run_dir) / "meta.json", meta)
 
+    def _stamp_missing_outcome(self, meta: dict, *, bucket: str, reason: str) -> None:
+        # C.3.2: meta.json always carries its required outcome fields; a run that failed or was
+        # interrupted records them as unknown (null) rather than omitting them (C.3.3).
+        meta.setdefault("achieved", None)
+        meta.setdefault("delivered", None)
+        meta.setdefault("bucket", bucket)
+        meta.setdefault("reason", reason)
+        meta.setdefault("usage", {"present": False})
+        meta.setdefault("cost_usd", None)
+        meta.setdefault("security", {"leaks": [], "secrets": []})
+        meta.setdefault("approvals", None)
+        meta.setdefault(
+            "replay",
+            {"turns_injected": 0, "completed_index": None, "not_converged": True, "aborted": True},
+        )
+
     def _run_rollout(
         self,
         *,
@@ -548,7 +579,14 @@ class BaseAdapter:
             for rel, info in after["files"].items()
             if baseline["files"].get(rel) != info
         }
-        delivered = scoring.delivered(workspace, list(task.expected_deliverables), changed)
+        # Failed/interrupted runs must report unknown outcome fields as null, never as a
+        # fabricated False/0 (PRD C.3.3).
+        completed = completed_index is not None
+        delivered = (
+            scoring.delivered(workspace, list(task.expected_deliverables), changed)
+            if completed
+            else None
+        )
         files_payload = self._deliverable_payload(workspace, changed)
         store.atomic_write_json(run_dir / "deliverables" / "files.json", files_payload)
         store.atomic_write_json(
@@ -560,8 +598,8 @@ class BaseAdapter:
                 "expected": list(task.expected_deliverables),
             },
         )
-        correction_messages = sum(
-            1 for step in replay_steps if step["corrective"]
+        correction_messages = (
+            sum(1 for step in replay_steps if step["corrective"]) if completed else None
         )
         total_turns = sum(max(1, r.turns) for r in results) if results else 0
         tool_events = [event for r in results for event in r.tool_events]
@@ -580,9 +618,21 @@ class BaseAdapter:
             final_text=last.final_text if last else "",
         )
         facts_payload = facts.to_dict()
+        # C.3.3: an unmapped end reason becomes bucket "other", but that must be an explicit
+        # warning, never a silent downgrade; and turn counts that the runtime did not report
+        # are marked unavailable instead of quietly counted.
+        warnings: list[str] = []
+        raw_reason = last.reason if last else ""
+        if facts.bucket == "other" and str(raw_reason) not in metrics.BUCKETS:
+            warnings.append(f"unknown end reason {str(raw_reason)!r} mapped to bucket 'other'")
+        turns_available = bool(results) and all(int(r.turns or 0) > 0 for r in results)
+        facts_payload["warnings"] = warnings
+        facts_payload["turns_available"] = turns_available
         store.atomic_write_json(run_dir / "facts.json", facts_payload)
         metrics_payload = metrics.compute_metrics(facts)
         metrics_payload["n_estimated_cost_calls"] = estimated_charges
+        metrics_payload["warnings"] = warnings
+        metrics_payload["turns_available"] = turns_available
         store.atomic_write_json(run_dir / "metrics.json", metrics_payload)
         replay_payload = {
             "runtime": self.runtime,

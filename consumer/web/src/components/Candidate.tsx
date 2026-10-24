@@ -65,8 +65,10 @@ export function CandidateCard({
   onIgnore: () => void;
   compact?: boolean;
 }) {
+  const app = useApp();
   const l = useL();
   const lang = useLang();
+  const detailed = app.settings?.ui.style === "detailed";
   const applied = ["applied", "trial", "kept"].includes(candidate.state);
   return (
     <article className="candidate-card">
@@ -76,13 +78,21 @@ export function CandidateCard({
             <Badge variant="accent">{candidateStateLabel(candidate.state, lang)}</Badge>
             <Badge>{KIND_LABELS[candidate.kind]?.[lang] || candidate.kind}</Badge>
             {candidate.confidence === "high" ? <Badge variant="inverse">{l("高置信度", "High confidence")}</Badge> : null}
+            {candidate.fallback_used ? <Badge variant="dashed">{l("已使用备用模型", "Fallback used")}</Badge> : null}
             {!candidate.presented ? <Badge variant="dashed">{l("待看", "Inbox")}</Badge> : null}
           </div>
           <h3 className="candidate-summary">{candidate.summary}</h3>
           <p className="sub">
             {l("预计影响", "Expected effect")}: {candidate.expected_effect}
           </p>
-          {!compact ? <p className="sub">{candidate.risk}</p> : null}
+          {!compact || detailed ? <p className="sub">{candidate.risk}</p> : null}
+          {detailed ? (
+            <p className="sub">
+              {l("来源会话", "Source")}: {candidate.source?.session_id || "—"} ·{" "}
+              {l("纠正", "Corrections")} {candidate.source?.signals?.corrections ?? 0} ·{" "}
+              {l("工具循环", "Tool loops")} {candidate.source?.signals?.tool_loops ?? 0}
+            </p>
+          ) : null}
         </div>
         <div className="text-right stack-sm">
           <strong>{formatMoney(candidate.cost_usd, lang)}</strong>
@@ -111,7 +121,7 @@ export function CandidateCard({
       </div>
       <div className="candidate-actions">
         <Button size="sm" variant="ghost" icon="eye" onClick={onOpen}>
-          {l("查看 diff 与原因", "View diff and reason")}
+          {l("查看改动与原因", "View change and reason")}
         </Button>
         {candidate.state === "needs_apply" ? (
           <>
@@ -144,7 +154,8 @@ export function CandidateDetailModal({
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<"" | "revert">("");
+  const [pending, setPending] = useState<"" | "apply" | "revert">("");
+  const beginner = app.settings?.ui.beginner !== false;
 
   const load = async () => {
     try {
@@ -207,9 +218,23 @@ export function CandidateDetailModal({
         candidate ? (
           <>
             {candidate.state === "needs_apply" ? (
-              <Button icon="check" onClick={() => void action("apply")} loading={busy}>
-                {l("应用到 harness", "Apply to harness")}
-              </Button>
+              pending === "apply" ? (
+                <>
+                  <span className="small">
+                    {l("确认应用？应用前会创建快照。", "Apply now? A snapshot will be created first.")}
+                  </span>
+                  <Button icon="check" onClick={() => void action("apply")} loading={busy}>
+                    {l("确认应用", "Confirm apply")}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setPending("")} disabled={busy}>
+                    {l("取消", "Cancel")}
+                  </Button>
+                </>
+              ) : (
+                <Button icon="check" onClick={() => setPending("apply")} loading={busy}>
+                  {l("应用改进", "Apply improvement")}
+                </Button>
+              )
             ) : null}
             {["applied", "trial", "kept"].includes(candidate.state) ? (
               pending === "revert" ? (
@@ -249,10 +274,19 @@ export function CandidateDetailModal({
               <KeyValue label={l("预计影响", "Expected effect")}>{candidate.expected_effect}</KeyValue>
               <KeyValue label={l("风险", "Risk")}>{candidate.risk}</KeyValue>
               <KeyValue label={l("文件", "Files")}>{candidate.files_changed.join(", ")}</KeyValue>
-              <KeyValue label={l("基线", "Base")}>
-                <span className="mono small">{candidate.base_hash.slice(0, 16)}…</span>
-              </KeyValue>
+              {!beginner ? (
+                <KeyValue label={l("基线", "Base")}>
+                  <span className="mono small">{candidate.base_hash.slice(0, 16)}…</span>
+                </KeyValue>
+              ) : null}
               <KeyValue label={l("成本（估算）", "Cost (estimate)")}>{formatMoney(candidate.cost_usd, lang)}</KeyValue>
+              {candidate.model_used || candidate.model ? (
+                <KeyValue label={l("分析模型", "Analysis model")}>
+                  <span className="mono small wrap-anywhere">
+                    {candidate.model_used || candidate.model}
+                  </span>
+                </KeyValue>
+              ) : null}
             </div>
             <div className="stack-sm">
               <KeyValue label={l("来自会话", "Source session")}>{candidate.source?.session_id || "—"}</KeyValue>
@@ -263,8 +297,20 @@ export function CandidateDetailModal({
               </KeyValue>
               <KeyValue label={l("安全检查", "Safety")}>
                 {candidate.safety?.ok ? l("通过", "Passed") : l("未通过", "Failed")}
+                {candidate.safety?.violations?.length ? (
+                  <ul className="step-list">
+                    {candidate.safety.violations.map((violation) => (
+                      <li key={violation}><span>•</span><span>{violation}</span></li>
+                    ))}
+                  </ul>
+                ) : null}
               </KeyValue>
               <KeyValue label={l("展示原因", "Presentation")}>{PRESENT_LABELS[candidate.presentation_reason]?.[lang] || candidate.presentation_reason || "—"}</KeyValue>
+              {candidate.fallback_used ? (
+                <KeyValue label={l("模型降级", "Fallback")}>
+                  {l("主模型不可用，已按顺序使用备用模型", "Primary unavailable; a fallback model was used")}
+                </KeyValue>
+              ) : null}
             </div>
           </div>
           <InfoNote icon="shield">
@@ -299,7 +345,7 @@ export function CandidateDetailModal({
               </div>
             </Section>
           ) : null}
-          <CodeBlock code={candidate.diff || ""} label={l("改动 diff", "Change diff")} />
+          <CodeBlock code={candidate.diff || ""} label={l("文件改动对比", "File change")} />
           <div className="stack-sm">
             <strong>{l("这条建议有用吗？", "Was this suggestion useful?")}</strong>
             <div className="row">

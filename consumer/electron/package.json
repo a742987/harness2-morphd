@@ -31,7 +31,8 @@
       "build/icon.png",
       "LICENSE",
       "NOTICE",
-      "package.json"
+      "package.json",
+      "build/icon-badge.png"
     ],
     "extraResources": [
       {
@@ -56,7 +57,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     },
     "publish": null
   },

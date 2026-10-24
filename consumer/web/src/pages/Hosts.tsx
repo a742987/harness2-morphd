@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import {
   Badge,
@@ -17,7 +17,13 @@ import {
 } from "../components/UI";
 import { formatDate, useL, useLang } from "../i18n";
 import { useApp } from "../state";
-import type { HostCandidate } from "../types";
+import type { HostCandidate, ManualProject } from "../types";
+
+const HOST_NAMES: Record<string, string> = {
+  dsh: "dsh",
+  "claude-code": "Claude Code",
+  codex: "Codex",
+};
 
 const STATUS_COPY: Record<string, { zh: string; en: string }> = {
   adapt: { zh: "可适配", en: "Ready" },
@@ -27,6 +33,8 @@ const STATUS_COPY: Record<string, { zh: string; en: string }> = {
   permission_denied: { zh: "权限不足", en: "Permission denied" },
   config_missing: { zh: "缺少配置目录", en: "Config missing" },
   identity_unknown: { zh: "身份不确定", en: "Identity uncertain" },
+  upgrade_available: { zh: "可升级", en: "Upgrade available" },
+  repair_required: { zh: "需修复", en: "Repair required" },
 };
 
 export function Hosts() {
@@ -43,8 +51,20 @@ export function Hosts() {
   const [configPath, setConfigPath] = useState("");
   const [uninstall, setUninstall] = useState<string | null>(null);
   const [restore, setRestore] = useState<string | null>(null);
+  const [readOnlyProjects, setReadOnlyProjects] = useState<ManualProject[]>([]);
+  const [readOnlyOpen, setReadOnlyOpen] = useState(false);
+  const [readOnlyHost, setReadOnlyHost] = useState<"dsh" | "claude-code" | "codex">("dsh");
+  const [readOnlyRoot, setReadOnlyRoot] = useState("");
+  const [readOnlyConfig, setReadOnlyConfig] = useState("");
+  const [readOnlyLabel, setReadOnlyLabel] = useState("");
+  const [readOnlyDelete, setReadOnlyDelete] = useState<ManualProject | null>(null);
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
 
-  const candidates = app.hosts.filter((host) => !host.installed);
+  const candidates = app.hosts.filter(
+    (host) =>
+      !skipped.has(host.id) &&
+      (!host.installed || host.repair_required || host.upgrade_available),
+  );
   const installed = app.status?.hosts || [];
 
   const run = async (fn: () => Promise<unknown>, successZh: string, successEn: string) => {
@@ -61,6 +81,21 @@ export function Hosts() {
       setBusy(false);
     }
   };
+
+  const loadReadOnlyProjects = async () => {
+    try {
+      const payload = await api.manualProjects();
+      setReadOnlyProjects(payload.projects);
+    } catch (caught) {
+      const apiError = app.handleError(caught);
+      if (apiError && apiError.code !== "DISCONNECTED") setError(caught);
+    }
+  };
+
+  useEffect(() => {
+    if (!app.status) return;
+    void loadReadOnlyProjects();
+  }, [app.status?.started_at]);
 
   const discover = () => run(async () => {
     await api.discoverHosts();
@@ -85,12 +120,13 @@ export function Hosts() {
     setManualOpen(false);
   }, "宿主已适配", "Host adapted");
 
-  const chooseFolder = async (kind: "install" | "config" | "project") => {
+  const browse = async (
+    kind: "install" | "config" | "project",
+    onPick: (path: string) => void,
+  ) => {
     try {
       const result = await api.pickFolder(kind);
-      if (kind === "install") setInstallPath(result.path);
-      else if (kind === "config") setConfigPath(result.path);
-      else setProjectRoot(result.path);
+      if (result.path) onPick(result.path);
     } catch (caught) {
       const apiError = app.handleError(caught);
       if (apiError) {
@@ -102,6 +138,35 @@ export function Hosts() {
       }
     }
   };
+
+  const chooseFolder = (kind: "install" | "config" | "project") =>
+    browse(kind, (path) => {
+      if (kind === "install") setInstallPath(path);
+      else if (kind === "config") setConfigPath(path);
+      else setProjectRoot(path);
+    });
+
+  const addReadOnlyProject = () => run(async () => {
+    if (!readOnlyRoot.trim()) {
+      throw new Error(l("请选择项目文件夹", "Choose a project folder"));
+    }
+    await api.addManualProject({
+      host: readOnlyHost,
+      project_root: readOnlyRoot,
+      config_dir: readOnlyConfig || undefined,
+      label: readOnlyLabel || undefined,
+    });
+    setReadOnlyOpen(false);
+    setReadOnlyRoot("");
+    setReadOnlyConfig("");
+    setReadOnlyLabel("");
+    await loadReadOnlyProjects();
+  }, "已添加只读项目；不会自动触发", "Read-only project added; no automatic trigger");
+
+  const importReadOnlySession = (project: ManualProject) => run(async () => {
+    await api.importManualProject(project.id);
+    await loadReadOnlyProjects();
+  }, "已导入最近会话；到首页选择它即可手动分析", "Latest session imported; analyze it manually from Home");
 
   return (
     <>
@@ -237,7 +302,84 @@ export function Hosts() {
                     }}
                     disabled={!host.compatible}
                   >
-                    {l("适配", "Adapt")}
+                    {host.repair_required
+                      ? l("修复", "Repair")
+                      : host.upgrade_available
+                        ? l("升级适配", "Upgrade")
+                        : l("适配", "Adapt")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSkipped((current) => new Set(current).add(host.id))}
+                  >
+                    {l("跳过", "Skip")}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => app.setPage("diagnostics")}>
+                    {l("诊断", "Diagnose")}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title={l("只读项目（手动分析）", "Read-only projects (manual analysis)")}
+        subtitle={l(
+          "只选择项目文件夹，不适配宿主、不自动触发。导入只读取宿主配置目录中的最新本地会话，是否分析由你在首页决定。",
+          "Choose only a project folder without adapting the host or enabling automatic triggers. Import reads the latest local session from the host config directory; you decide on Home whether to analyze it.",
+        )}
+        actions={
+          <Button size="sm" variant="ghost" icon="plus" onClick={() => setReadOnlyOpen(true)}>
+            {l("添加只读项目", "Add read-only project")}
+          </Button>
+        }
+      >
+        {readOnlyProjects.length === 0 ? (
+          <EmptyState icon="eye" title={l("还没有只读项目", "No read-only project yet")}>
+            {l(
+              "只想分析某个项目、又不想修改宿主时使用。这里不会写入宿主配置或项目文件。",
+              "Use this when you only want to analyze a project without modifying the host. Nothing is written to the host config or project files.",
+            )}
+          </EmptyState>
+        ) : (
+          <div className="list">
+            {readOnlyProjects.map((project) => (
+              <div className="list-item" key={project.id}>
+                <div className="list-main">
+                  <div className="row">
+                    <span className="list-title">{project.label}</span>
+                    <Badge variant="accent">{l("只读", "Read-only")}</Badge>
+                    <Badge variant="dashed">{l("不自动触发", "No auto trigger")}</Badge>
+                  </div>
+                  <span className="sub">{HOST_NAMES[project.host] || project.host}</span>
+                  <span className="sub mono wrap-anywhere">{project.project_root}</span>
+                  <span className="sub wrap-anywhere">
+                    {l("配置目录", "Config")}: {project.config_dir || l("宿主默认目录", "Host default")}
+                  </span>
+                  <span className="sub">
+                    {l("添加于", "Added")} {formatDate(project.created_at, lang)}
+                  </span>
+                </div>
+                <div className="list-actions">
+                  <Button
+                    size="sm"
+                    icon="upload"
+                    onClick={() => importReadOnlySession(project)}
+                    loading={busy}
+                  >
+                    {l("导入最近会话", "Import latest")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon="trash"
+                    onClick={() => setReadOnlyDelete(project)}
+                    disabled={busy}
+                  >
+                    {l("移除登记", "Remove")}
                   </Button>
                 </div>
               </div>
@@ -413,6 +555,117 @@ export function Hosts() {
             )}
           </InfoNote>
         </Modal>
+      ) : null}
+
+      {readOnlyOpen ? (
+        <Modal
+          title={l("添加只读项目", "Add read-only project")}
+          subtitle={l("不修改宿主，只用于手动导入与分析", "Does not modify the host; used for manual import and analysis")}
+          onClose={() => setReadOnlyOpen(false)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setReadOnlyOpen(false)} disabled={busy}>
+                {l("取消", "Cancel")}
+              </Button>
+              <Button onClick={addReadOnlyProject} loading={busy} icon="plus">
+                {l("添加只读项目", "Add read-only project")}
+              </Button>
+            </>
+          }
+        >
+          <p className="sub">
+            {l(
+              "只记录项目范围与可选配置目录。不会写入宿主配置或项目文件，不会递归扫描磁盘，也不会自动触发分析。",
+              "Only the project scope and an optional config folder are recorded. No host config or project file is written, no disk-wide scan runs, and no analysis is triggered automatically.",
+            )}
+          </p>
+          <Field label={l("宿主", "Host")} htmlFor="readonly-host">
+            <select
+              id="readonly-host"
+              className="input select"
+              value={readOnlyHost}
+              onChange={(event) => setReadOnlyHost(event.target.value as typeof readOnlyHost)}
+            >
+              <option value="dsh">dsh</option>
+              <option value="claude-code">Claude Code</option>
+              <option value="codex">Codex</option>
+            </select>
+          </Field>
+          <Field
+            label={l("项目文件夹", "Project folder")}
+            hint={l("用于限定学习范围；不会扫描或上传项目源码。", "Limits the learning scope; project source is never scanned or uploaded here.")}
+            htmlFor="readonly-project"
+          >
+            <div className="input-row">
+              <Input
+                id="readonly-project"
+                value={readOnlyRoot}
+                onChange={(event) => setReadOnlyRoot(event.target.value)}
+                spellCheck={false}
+              />
+              <Button size="sm" variant="ghost" onClick={() => browse("project", setReadOnlyRoot)}>
+                {l("选择", "Browse")}
+              </Button>
+            </div>
+          </Field>
+          <Field
+            label={l("配置目录（可选）", "Config folder (optional)")}
+            hint={l("留空时使用宿主的默认配置目录。", "Leave blank to use the host's default config folder.")}
+            htmlFor="readonly-config"
+          >
+            <div className="input-row">
+              <Input
+                id="readonly-config"
+                value={readOnlyConfig}
+                onChange={(event) => setReadOnlyConfig(event.target.value)}
+                spellCheck={false}
+              />
+              <Button size="sm" variant="ghost" onClick={() => browse("config", setReadOnlyConfig)}>
+                {l("选择", "Browse")}
+              </Button>
+            </div>
+          </Field>
+          <Field
+            label={l("显示名称（可选）", "Label (optional)")}
+            hint={l("默认使用项目文件夹名。", "Defaults to the project folder name.")}
+            htmlFor="readonly-label"
+          >
+            <Input
+              id="readonly-label"
+              value={readOnlyLabel}
+              onChange={(event) => setReadOnlyLabel(event.target.value)}
+            />
+          </Field>
+          <InfoNote tone="warn" icon="shield">
+            {l(
+              "只读项目不会出现在“已适配宿主”中；导入最近会话后，需到首页手动发起分析（会按预算预检）。",
+              "Read-only projects never appear under adapted hosts. After importing the latest session, start analysis manually on Home (with a budget pre-check).",
+            )}
+          </InfoNote>
+        </Modal>
+      ) : null}
+
+      {readOnlyDelete ? (
+        <ConfirmDialog
+          title={l("移除只读项目登记？", "Remove this read-only project?")}
+          confirmLabel={l("移除登记", "Remove entry")}
+          onConfirm={() => run(async () => {
+            if (!readOnlyDelete) return;
+            await api.deleteManualProject(readOnlyDelete.id);
+            setReadOnlyDelete(null);
+            await loadReadOnlyProjects();
+          }, "已移除只读项目登记", "Read-only project entry removed")}
+          onClose={() => setReadOnlyDelete(null)}
+          danger
+          busy={busy}
+        >
+          <p>
+            {l(
+              "只删除这条只读登记；已导入的会话、宿主文件与项目文件都会保留。",
+              "Only this read-only entry is removed. Imported sessions, host files, and project files are kept.",
+            )}
+          </p>
+        </ConfirmDialog>
       ) : null}
 
       {uninstall ? (

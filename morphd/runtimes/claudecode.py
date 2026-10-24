@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import _upstream, budget, config, pricing, store, winproc
 from ..contract import TaskContract, TaskStore
-from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult
+from ..runtimes.base import BaseAdapter, PreparedRun, TurnResult, truncate_marked
 from .base import RuntimeError_
 
 HT = _upstream.core("tree")
@@ -119,11 +119,11 @@ def render_events(events: list[dict], *, obs_trunc: int, args_trunc: int = 400) 
         if etype == "assistant":
             for block in _content_blocks(message):
                 if block.get("type") == "text" and isinstance(block.get("text"), str):
-                    lines.append(f"[ASSISTANT] {str(block['text'])[:obs_trunc]}")
+                    lines.append(f"[ASSISTANT] {truncate_marked(block['text'], obs_trunc)}")
                 elif block.get("type") == "tool_use":
                     args = json.dumps(block.get("input", {}), ensure_ascii=False)
                     lines.append(
-                        f"[ACTION] {block.get('name', 'tool')}: {args[:args_trunc]}"
+                        f"[ACTION] {block.get('name', 'tool')}: {truncate_marked(args, args_trunc)}"
                     )
         elif etype == "user":
             for block in _content_blocks(message):
@@ -131,9 +131,9 @@ def render_events(events: list[dict], *, obs_trunc: int, args_trunc: int = 400) 
                     body = block.get("content")
                     text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
                     tag = "OBSERVATION ERROR" if block.get("is_error") else "OBSERVATION"
-                    lines.append(f"[{tag}] {str(text)[:obs_trunc]}")
+                    lines.append(f"[{tag}] {truncate_marked(text, obs_trunc)}")
                 elif block.get("type") == "text" and isinstance(block.get("text"), str):
-                    lines.append(f"[USER] {str(block['text'])[:obs_trunc]}")
+                    lines.append(f"[USER] {truncate_marked(block['text'], obs_trunc)}")
         elif etype == "system":
             subtype = event.get("subtype")
             if subtype:
@@ -143,7 +143,7 @@ def render_events(events: list[dict], *, obs_trunc: int, args_trunc: int = 400) 
             text = event.get("result")
             lines.append(f"[HARNESS] result: {subtype}")
             if isinstance(text, str) and text.strip():
-                lines.append(f"[ASSISTANT] {text[:obs_trunc]}")
+                lines.append(f"[ASSISTANT] {truncate_marked(text, obs_trunc)}")
         elif etype == "error":
             lines.append(f"[ERROR] {str(event.get('error') or event)[:1000]}")
     rendered = "\n".join(lines).strip()
@@ -289,8 +289,10 @@ class ClaudeCodeAdapter(BaseAdapter):
         )
         help_text = (proc.stdout or "") + (proc.stderr or "")
         required = [
+            "--print",
             "--permission-mode",
             "--allowedTools",
+            "--disallowedTools",
             "--setting-sources",
             "--session-id",
             "--resume",

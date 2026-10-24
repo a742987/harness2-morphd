@@ -11,7 +11,6 @@ import dataclasses
 import json
 import os
 import sys
-import webbrowser
 from pathlib import Path
 
 from .. import (
@@ -39,6 +38,8 @@ from ..config import RUNTIMES, Settings, parse_named_values, parse_runtime_list
 from ..consumer.errors import ConsumerError as _ConsumerError
 from ..platform_support import require_windows
 from ..runtimes.prompts import LEAK_GLOBS
+
+HOST_KINDS = ("dsh", "claude-code", "codex")
 
 
 def _settings(args) -> Settings:
@@ -194,9 +195,22 @@ def cmd_evaluate(args) -> int:
         runtime=runtime, turn_counts=turn_counts, price=price, limits=limits
     )
     budget.check_plan([plan])
+    # A deterministic journal name lets an interrupted evaluation resume with the spend
+    # already recorded; the report file itself still gets a unique stamp below.
+    eval_identity = store.payload_hash(
+        {
+            "runtime": runtime,
+            "splits": list(splits),
+            "tasks": selected,
+            "candidate": str(Path(args.candidate).expanduser().resolve()),
+            "model": model,
+            "budget_usd": args.budget_usd,
+            "budget_calls": args.budget_calls,
+        }
+    )[:16]
     guard = budget.BudgetGuard(
         limits=limits,
-        journal=settings.runs_root / runtime / "_budget" / f"eval-{store.utc_stamp()}.jsonl",
+        journal=settings.runs_root / runtime / "_budget" / f"eval-{eval_identity}.jsonl",
         pricing_snapshot=price.to_dict(),
     )
     adapter = _single_adapter(runtime, settings, tasks_store, price, model, guard)
@@ -620,35 +634,13 @@ def cmd_serve(args) -> int:
     from ..consumer.lifecycle import run_server
 
     home = Path(args.home).expanduser().resolve() if args.home else None
-    if args.open:
-        import threading
-        import time as _time
-
-        from ..consumer.api import LocalServer
-        from ..consumer.service import ConsumerService
-
-        service = ConsumerService(home)
-        server = LocalServer(service)
-        # open the browser after the server is listening
-        def _open():
-            _time.sleep(0.4)
-            webbrowser.open(server.url)
-        if not args.config_only:
-            service.start()
-        server.start()
-        threading.Thread(target=_open, daemon=True).start()
-        if not args.quiet:
-            print(f"morphd UI: {server.url}", flush=True)
-        try:
-            while True:
-                _time.sleep(0.5)
-        except KeyboardInterrupt:
-            return 0
-        finally:
-            server.stop()
-            if not args.config_only:
-                service.stop()
-    return run_server(home, quiet=args.quiet, config_only=args.config_only)
+    return run_server(
+        home,
+        quiet=args.quiet,
+        config_only=args.config_only,
+        open_browser=args.open,
+        exit_on_setup=args.exit_on_setup,
+    )
 
 
 def cmd_setup(args) -> int:
@@ -665,7 +657,9 @@ def cmd_setup(args) -> int:
             project_root=args.project,
         )
     else:
-        compatible = [c for c in candidates if c.get("compatible") and not c.get("installed")]
+        # Already-installed hosts are valid targets for an idempotent setup/repair. Versions
+        # are listed newest first by discovery, so the CLI picks the highest compatible one.
+        compatible = [c for c in candidates if c.get("compatible")]
         if args.host:
             compatible = [c for c in compatible if c.get("kind") == args.host]
         if not compatible:
@@ -679,6 +673,19 @@ def cmd_setup(args) -> int:
                 }
                 for c in candidates
             ]
+            if args.allow_no_host:
+                _print_json(
+                    {
+                        "ok": True,
+                        "adapted": False,
+                        "candidates": statuses,
+                        "next": [
+                            "Open the local UI and choose a host folder manually.",
+                            "harness2-morphd never installs or upgrades a host.",
+                        ],
+                    }
+                )
+                return 0
             raise ConsumerError(
                 "HOST_NOT_FOUND",
                 "没有找到可适配的 Harness。",
@@ -698,11 +705,17 @@ def cmd_setup(args) -> int:
         else:
             candidate = compatible[0]
     project = args.project or os.getcwd()
+    print(
+        f"morphd: adapting {candidate.get('kind')} {candidate.get('version')} "
+        f"at {candidate.get('executable')} (project {project})",
+        file=sys.stderr,
+    )
     if args.dry_run:
         _print_json({"dry_run": True, "candidate": candidate, "project_root": project})
         return 0
     record = service.hosts_adapt(
-        {"candidate": candidate, "project_root": project, "manual": bool(args.install_path)}
+        {"candidate": candidate, "project_root": project, "manual": bool(args.install_path)},
+        confirm=True,
     )
     project_record = ProjectManager(service.store).for_root(Path(project))
     _print_json(
@@ -726,12 +739,40 @@ def cmd_status(args) -> int:
 
 
 def cmd_uninstall(args) -> int:
+    import shutil
+
     from ..consumer.privacy import delete_scope
 
     service = _consumer_service(args)
-    result = service.host_uninstall(args.host)
-    if args.delete_data:
+    kinds = (
+        [str(record.get("host")) for record in service.hosts.install_records()]
+        if args.all
+        else [args.host]
+    )
+    results = []
+    for kind in kinds:
+        if not kind:
+            continue
+        try:
+            results.append(service.host_uninstall(kind, confirm=True))
+        except Exception as exc:
+            results.append({"ok": False, "host": kind, "error": str(exc)})
+    result = {"ok": all(item.get("ok") for item in results) if results else True, "hosts": results}
+    remaining = service.hosts.install_records()
+    if args.delete_data and not remaining:
+        service.providers_delete_all(confirm=True)
         result["deleted"] = delete_scope(service.store, "all")
+        for name in ("config.json", "providers.json", "install.json", "vault.enc", "state.json"):
+            try:
+                (service.store.home / name).unlink()
+            except FileNotFoundError:
+                pass
+        for sub in ("runtime", "_budget", "logs"):
+            shutil.rmtree(service.store.home / sub, ignore_errors=True)
+        result["data_removed"] = True
+    elif args.delete_data:
+        result["data_removed"] = False
+        result["note"] = "其他宿主仍在使用，数据将在最后一个宿主卸载时删除。"
     _print_json(result)
     return 0
 
@@ -748,7 +789,8 @@ def cmd_privacy(args) -> int:
                     "scope": args.scope,
                     "session_id": args.session_id,
                     "project_id": args.project_id,
-                }
+                },
+                confirm=True,
             )
         )
         return 0
@@ -853,7 +895,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--budget-calls", action="append", default=[], help="value or runtime=value")
     run_p.add_argument("--budget-shared", action="store_true")
     run_p.add_argument("--model", action="append", default=[], help="runtime=model (repeatable)")
-    run_p.add_argument("--proposer-channel", default="", choices=("claude_cli", "opencode", ""))
+    run_p.add_argument("--proposer-channel", default="", choices=("claude_cli", "opencode", "byok", ""))
     run_p.add_argument("--proposer-model", default="")
     _common_paths(run_p)
     run_p.set_defaults(func=cmd_run)
@@ -997,15 +1039,25 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--open", action="store_true", help="open the UI in the default browser")
     serve_p.add_argument("--quiet", action="store_true")
     serve_p.add_argument("--config-only", action="store_true", help="no worker, no automatic learning")
+    serve_p.add_argument(
+        "--exit-on-setup",
+        action="store_true",
+        help="exit after the onboarding guide calls /api/onboarding/complete",
+    )
     serve_p.add_argument("--home", default=None)
     serve_p.set_defaults(func=cmd_serve)
 
     setup_p = sub.add_parser("setup", help="discover and adapt a local Harness")
-    setup_p.add_argument("--host", choices=RUNTIMES, default="")
+    setup_p.add_argument("--host", choices=HOST_KINDS, default="")
     setup_p.add_argument("--project", default=None)
     setup_p.add_argument("--install-path", default=None)
     setup_p.add_argument("--config-path", default=None)
     setup_p.add_argument("--dry-run", action="store_true")
+    setup_p.add_argument(
+        "--allow-no-host",
+        action="store_true",
+        help="return success without adapting so the UI can offer manual folder selection",
+    )
     setup_p.add_argument("--home", default=None)
     setup_p.set_defaults(func=cmd_setup)
 
@@ -1014,7 +1066,9 @@ def build_parser() -> argparse.ArgumentParser:
     status_p.set_defaults(func=cmd_status)
 
     uninstall_p = sub.add_parser("uninstall", help="remove a host integration")
-    uninstall_p.add_argument("--host", required=True, choices=RUNTIMES)
+    uninstall_group = uninstall_p.add_mutually_exclusive_group(required=True)
+    uninstall_group.add_argument("--host", choices=HOST_KINDS)
+    uninstall_group.add_argument("--all", action="store_true", help="remove every adapted host")
     uninstall_p.add_argument("--delete-data", action="store_true")
     uninstall_p.add_argument("--home", default=None)
     uninstall_p.set_defaults(func=cmd_uninstall)
@@ -1037,7 +1091,7 @@ def build_parser() -> argparse.ArgumentParser:
     host_p = sub.add_parser("host", help="host bridge (used by wrappers and hooks)")
     hsub = host_p.add_subparsers(dest="host_command", required=True)
     hrun = hsub.add_parser("run", help="start the UI server and launch the host")
-    hrun.add_argument("--host", dest="kind", required=True, choices=RUNTIMES)
+    hrun.add_argument("--host", dest="kind", required=True, choices=HOST_KINDS)
     hrun.add_argument("--binary", default="")
     hrun.add_argument("--project", default=None)
     hrun.add_argument("--quiet", action="store_true")
@@ -1045,7 +1099,7 @@ def build_parser() -> argparse.ArgumentParser:
     hrun.add_argument("argv", nargs=argparse.REMAINDER)
     hrun.set_defaults(func=cmd_host)
     hevt = hsub.add_parser("event", help="send a host session event")
-    hevt.add_argument("--host", dest="kind", required=True, choices=RUNTIMES)
+    hevt.add_argument("--host", dest="kind", required=True, choices=HOST_KINDS)
     hevt.add_argument("--event", choices=("session-end", "session-start"), default="session-end")
     hevt.add_argument("--stdin", action="store_true", help="read a hook payload from stdin")
     hevt.add_argument("--session-id", default="")

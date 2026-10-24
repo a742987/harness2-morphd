@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api";
 import {
   Button,
@@ -14,8 +14,16 @@ import {
   Toggle,
 } from "../components/UI";
 import { formatBytes, formatDate, useL, useLang } from "../i18n";
+import {
+  MAX_IMPORT_ROWS,
+  buildSettingsPatch,
+  describeValue,
+  diffSettings,
+  extractSettingsPayload,
+  type SettingDiff,
+} from "../settings-import";
 import { useApp } from "../state";
-import type { SessionRecord } from "../types";
+import type { SessionRecord, Settings } from "../types";
 
 export function Privacy() {
   const app = useApp();
@@ -31,6 +39,11 @@ export function Privacy() {
   const [deleteProject, setDeleteProject] = useState("");
   const [globs, setGlobs] = useState(settings?.privacy.excluded_globs.join("\n") || "");
   const [exported, setExported] = useState<{ path: string; bundle: Record<string, unknown> } | null>(null);
+  const [importRows, setImportRows] = useState<SettingDiff[]>([]);
+  const [importSelected, setImportSelected] = useState<Record<string, boolean>>({});
+  const [importName, setImportName] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const importInput = useRef<HTMLInputElement>(null);
 
   if (!settings) return null;
 
@@ -93,6 +106,69 @@ export function Privacy() {
     anchor.download = "morphd-export.json";
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const downloadSettings = () => {
+    const blob = new Blob([JSON.stringify({ settings }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "morphd-settings.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const chooseImport = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      app.toast("warn", "设置文件过大（上限 1 MB）", "Settings file is too large (1 MB limit)");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(await file.text());
+      const incoming = extractSettingsPayload(parsed);
+      if (!incoming) {
+        app.toast("warn", "这个文件里没有可识别的设置", "No recognisable settings in this file");
+        return;
+      }
+      const rows = diffSettings(settings as unknown as Record<string, unknown>, incoming).slice(
+        0,
+        MAX_IMPORT_ROWS,
+      );
+      if (rows.length === 0) {
+        app.toast("info", "没有需要导入的差异", "No differences to import");
+        return;
+      }
+      setImportRows(rows);
+      setImportSelected(Object.fromEntries(rows.map((row) => [row.path, true])));
+      setImportName(file.name);
+      setImportOpen(true);
+    } catch {
+      app.toast("warn", "无法解析这个 JSON 文件", "Could not parse this JSON file");
+    }
+  };
+
+  const applyImport = async () => {
+    const patch = buildSettingsPatch(importRows, importSelected);
+    if (Object.keys(patch).length === 0) {
+      app.toast("warn", "至少选择一项要导入的设置", "Select at least one setting to import");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await app.saveSettings(patch as Partial<Settings>);
+      if (!saved) return;
+      setImportOpen(false);
+      setImportRows([]);
+      setImportSelected({});
+      app.toast("ok", "已导入所选设置；冲突项按你的选择保留", "Selected settings imported; conflicting items kept as you chose");
+    } catch (caught) {
+      setError(caught);
+      app.handleError(caught);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const doDelete = async () => {
@@ -242,7 +318,7 @@ export function Privacy() {
 
       <Section
         title={l("项目与数据规则", "Project and data rules")}
-        subtitle={l("这些规则同时作用于会话、发送预览和提案上下文。", "These rules apply to sessions, send previews, and proposal context.")}
+        subtitle={l("这些规则同时作用于会话、发送预览和建议上下文。", "These rules apply to sessions, send previews, and suggestion context.")}
       >
         <div className="stack">
           <Toggle
@@ -253,7 +329,7 @@ export function Privacy() {
           />
           <Field
             label={l("全局排除目录 / glob（每行一个）", "Global excluded folders / globs (one per line)")}
-            hint={l("项目级排除项会与此合并；排除内容不会进入任务、预览或提案。", "Project exclusions are merged in; excluded content never enters tasks, previews, or proposals.")}
+            hint={l("项目级排除项会与此合并；排除内容不会进入任务、预览或建议上下文。", "Project exclusions are merged in; excluded content never enters tasks, previews, or proposals.")}
             htmlFor="global-globs"
           >
             <textarea
@@ -275,6 +351,25 @@ export function Privacy() {
             </Button>
           </div>
           <div className="grid-2">
+            <Field
+              label={l("暂停期间的会话记录", "Recording while paused")}
+              hint={l("暂停/休假时不分析；可只保留元数据、完全不记录，或保留完整摘要。", "No analysis while paused or on vacation; keep metadata only, nothing, or the full summary.")}
+              htmlFor="paused-recording"
+            >
+              <Select
+                id="paused-recording"
+                value={settings.privacy.paused_session_recording}
+                onChange={(event) =>
+                  void save({
+                    paused_session_recording: event.target.value as Settings["privacy"]["paused_session_recording"],
+                  })
+                }
+              >
+                <option value="minimal">{l("只保留最小状态（默认）", "Metadata only (default)")}</option>
+                <option value="none">{l("完全不记录", "Do not record")}</option>
+                <option value="full">{l("保留完整摘要", "Keep the full summary")}</option>
+              </Select>
+            </Field>
             <Field label={l("数据保留", "Retention")} hint={l("超期会话、任务与 workspace 会被清理；可用下方按钮立即执行。", "Expired sessions, jobs, and workspaces are removed; you can run it now.")} htmlFor="retention">
               <Select
                 id="retention"
@@ -303,7 +398,7 @@ export function Privacy() {
           <Toggle
             checked={settings.privacy.auto_discover_hosts}
             onChange={(next) => void save({ auto_discover_hosts: next })}
-            label={l("自动发现 Harness", "Auto-discover Harnesses")}
+            label={l("自动发现本机 Agent 工具", "Auto-discover local agent tools")}
             hint={l("关闭后只使用手动指定；发现过程始终只读元数据。", "When off, only manual selection is used; discovery is always read-only metadata.")}
           />
         </div>
@@ -323,7 +418,31 @@ export function Privacy() {
                 {l("下载导出（无 Key）", "Download export (no keys)")}
               </Button>
             ) : null}
+            <Button variant="ghost" icon="download" onClick={downloadSettings}>
+              {l("下载设置", "Download settings")}
+            </Button>
+            <Button variant="ghost" icon="upload" onClick={() => importInput.current?.click()}>
+              {l("导入设置（逐项确认）", "Import settings (review each)")}
+            </Button>
+            <input
+              ref={importInput}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              aria-label={l("选择设置 JSON 文件", "Choose a settings JSON file")}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                void chooseImport(file);
+              }}
+            />
           </div>
+          <p className="sub">
+            {l(
+              "导入只应用你勾选的设置项；Key、服务商、会话与项目数据不会被导入或覆盖。",
+              "Import applies only the settings you check. Keys, providers, sessions, and project data are never imported or overwritten.",
+            )}
+          </p>
           {exported ? <p className="sub mono wrap-anywhere">{exported.path}</p> : null}
           <div className="danger-action">
             <div>
@@ -355,6 +474,83 @@ export function Privacy() {
           </InfoNote>
         </div>
       </Section>
+
+      {importOpen ? (
+        <Modal
+          title={l("导入设置（逐项确认）", "Import settings (review each)")}
+          subtitle={`${importName} · ${importRows.length} ${l("项差异", "differences")}`}
+          onClose={() => setImportOpen(false)}
+          wide
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setImportOpen(false)} disabled={busy}>
+                {l("取消", "Cancel")}
+              </Button>
+              <Button onClick={() => void applyImport()} loading={busy} icon="check">
+                {l("应用所选设置", "Apply selected settings")}
+              </Button>
+            </>
+          }
+        >
+          <p className="sub">
+            {l(
+              "每一项都对照当前值；取消勾选即保留当前值。冲突项不会自动覆盖。",
+              "Each item is compared with the current value. Unchecked items keep the current value; conflicts are never overwritten automatically.",
+            )}
+          </p>
+          <div className="row">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setImportSelected(Object.fromEntries(importRows.map((row) => [row.path, true])))
+              }
+            >
+              {l("全选", "Select all")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setImportSelected(Object.fromEntries(importRows.map((row) => [row.path, false])))
+              }
+            >
+              {l("全不选", "Select none")}
+            </Button>
+          </div>
+          <div className="list">
+            {importRows.map((row) => (
+              <label className="list-item" key={row.path}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(importSelected[row.path])}
+                  onChange={(event) =>
+                    setImportSelected((current) => ({
+                      ...current,
+                      [row.path]: event.target.checked,
+                    }))
+                  }
+                />
+                <div className="list-main">
+                  <span className="list-title mono wrap-anywhere">{row.path}</span>
+                  <span className="sub wrap-anywhere">
+                    {l("当前", "Current")}: {describeValue(row.current)}
+                  </span>
+                  <span className="sub wrap-anywhere">
+                    {l("导入", "Incoming")}: {describeValue(row.incoming)}
+                  </span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <InfoNote icon="shield">
+            {l(
+              "导入文件仅用于设置项。Key、服务商配置、会话、候选与项目数据不会被读取或写入。",
+              "Import applies to settings only. Keys, provider configuration, sessions, candidates, and project data are neither read nor written.",
+            )}
+          </InfoNote>
+        </Modal>
+      ) : null}
 
       {preview && previewSession ? (
         <Modal
@@ -450,7 +646,7 @@ export function Privacy() {
           <p>
             {deleteScope === "all"
               ? l("将删除全部会话、建议、任务、快照、日志与导出；设置与 Key 保留。", "Deletes all sessions, suggestions, jobs, snapshots, logs, and exports. Settings and keys remain.")
-              : l("删除后不可恢复。已应用的 harness 改动不会自动回退。", "Deletion is irreversible. Applied harness changes are not automatically reverted.")}
+              : l("删除后不可恢复。已应用的 Agent 工作方式改动不会自动回退。", "Deletion is irreversible. Applied agent changes are not automatically reverted.")}
           </p>
           <p className="sub">{l("磁盘占用", "Disk usage")}: {formatBytes(app.diagnostics?.disk.bytes || 0, lang)}</p>
         </ConfirmDialog>

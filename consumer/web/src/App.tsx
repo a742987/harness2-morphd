@@ -123,9 +123,10 @@ function Shell() {
     root.dataset.font = font;
     root.dataset.contrast = contrast;
     root.dataset.motion = motion;
+    root.dataset.sr = app.settings?.ui.screen_reader_optimized === false ? "off" : "on";
     root.lang = lang === "zh" ? "zh-CN" : "en";
     document.title = app.page === "home" ? "morphd" : `${app.page} · morphd`;
-  }, [theme, font, contrast, motion, lang, app.page]);
+  }, [theme, font, contrast, motion, lang, app.page, app.settings?.ui.screen_reader_optimized]);
 
   if (app.booting) {
     return (
@@ -150,6 +151,20 @@ function Shell() {
           <PageSwitch />
         </Layout>
       )}
+      {app.settings?.ui.screen_reader_optimized !== false ? (
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {app.status
+            ? l(
+                `${app.status.learning.paused ? "已暂停" : "学习中"} · ${
+                  app.status.hosts.filter((host) => host.connected).length
+                } 个宿主已连接`,
+                `${app.status.learning.paused ? "Paused" : "Learning"} · ${
+                  app.status.hosts.filter((host) => host.connected).length
+                } host(s) connected`,
+              )
+            : ""}
+        </div>
+      ) : null}
       <ToastHost toasts={app.toasts} onDismiss={app.dismissToast} />
     </LangContext.Provider>
   );
@@ -175,9 +190,9 @@ class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
             <div className="boot-mark" aria-hidden="true">m</div>
             <h1>界面遇到问题 / UI error</h1>
             <p className="sub mt-8">
-              没有写入任何 harness 文件。刷新页面即可重新连接；如果反复出现，请打开诊断页并复制脱敏诊断信息。
+              没有写入任何 Agent 工作方式文件。刷新页面即可重新连接；如果反复出现，请打开诊断页并复制脱敏诊断信息。
               <br />
-              No harness file was written. Reload to reconnect; if it repeats, copy redacted
+              No agent file was written. Reload to reconnect; if it repeats, copy redacted
               diagnostics from the Diagnostics page.
             </p>
             <Button className="mt-16" icon="refresh" onClick={() => window.location.reload()}>

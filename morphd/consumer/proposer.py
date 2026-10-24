@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -170,6 +171,7 @@ class BYOKProposer:
         clients: list[ProviderClient],
         work_root: Path,
         charge: Callable[[Completion, str], None] | None = None,
+        precall: Callable[[str], None] | None = None,
         cache_root: Path | None = None,
         max_rounds: int = MAX_TOOL_ROUNDS,
         should_stop: Callable[[], bool] | None = None,
@@ -180,6 +182,7 @@ class BYOKProposer:
         self.work_root = Path(work_root)
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.charge = charge
+        self.precall = precall
         self.cache_root = Path(cache_root or (store.home / "runtime" / "cache" / "proposals"))
         self.cache_root.mkdir(parents=True, exist_ok=True)
         self.max_rounds = max_rounds
@@ -341,16 +344,18 @@ class BYOKProposer:
                 "mode": mode,
             }
         )
+        if harvest is not None:
+            try:
+                harvested = harvest(output)
+                if isinstance(harvested, dict):
+                    result["harvest"] = harvested
+            except Exception as exc:  # harvest failure must not masquerade as success
+                result["ok"] = False
+                result["error"] = f"harvest failed: {exc}"
+        # Cache only after harvest and validation succeeded; a failed result must never be
+        # replayed as a successful candidate on the next run.
         if result.get("ok"):
             self._cache_put(key, result, output)
-            if harvest is not None:
-                try:
-                    harvested = harvest(output)
-                    if isinstance(harvested, dict):
-                        result["harvest"] = harvested
-                except Exception as exc:  # harvest failure must not masquerade as success
-                    result["ok"] = False
-                    result["error"] = f"harvest failed: {exc}"
         return result
 
     def _tool_loop(
@@ -366,14 +371,20 @@ class BYOKProposer:
         timeout: float,
     ) -> dict | None:
         tree = read_tree(guard.root)
-        file_list = "\n".join(f"- {rel}" for rel in sorted(tree)[:400])
+        names = sorted(tree)
+        file_list = "\n".join(f"- {rel}" for rel in names[:400])
+        if len(names) > 400:
+            file_list += f"\n… {len(names) - 400} more files (not listed)"
         context_chunks = []
         remaining = MAX_CONTEXT_CHARS
-        for rel in sorted(tree):
+        for rel in names:
             text = tree[rel]
             if remaining <= 0:
+                context_chunks.append("\n…[remaining files omitted: context limit]")
                 break
-            piece = f"\n===== {rel} =====\n{text[:remaining]}"
+            body = text[:remaining]
+            suffix = "\n…[truncated: context limit]" if len(text) > len(body) else ""
+            piece = f"\n===== {rel} =====\n{body}{suffix}"
             context_chunks.append(piece)
             remaining -= len(piece)
         messages = [
@@ -397,9 +408,22 @@ class BYOKProposer:
             },
         ]
         wrote = 0
+        deadline = time.monotonic() + max(1.0, float(timeout))
+        finished_cleanly = False
         for round_index in range(self.max_rounds):
             if self.should_stop and self.should_stop():
                 raise ConsumerError("JOB_CANCELED", "任务已取消。", "下次宿主启动时可重新分析。")
+            if time.monotonic() >= deadline:
+                return {
+                    "text": "",
+                    "ok": False,
+                    "summary": "",
+                    "notes": "提案超时，已停止且没有生成候选。",
+                    "attempts": round_index,
+                    "error": "timeout",
+                }
+            if self.precall is not None:
+                self.precall(f"propose-tool-{round_index}")
             try:
                 completion = ProvidersManager.complete_with_fallback(
                     self.clients,
@@ -425,6 +449,7 @@ class BYOKProposer:
                     applied = self._apply_json_patch(text, guard)
                     if applied:
                         wrote += applied
+                finished_cleanly = True
                 break
             for call in completion.tool_calls:
                 try:
@@ -454,6 +479,15 @@ class BYOKProposer:
                         "提案改动的文件太多，已拒绝。",
                         "选择更保守的变更幅度。",
                     )
+        if not finished_cleanly:
+            return {
+                "text": "",
+                "ok": False,
+                "summary": "",
+                "notes": f"超过 {self.max_rounds} 轮工具调用上限，已停止且没有生成候选。",
+                "attempts": self.max_rounds,
+                "error": "tool_round_limit",
+            }
         after_hash = engine_store.tree_hash(guard.root)
         if after_hash == before_hash:
             return {
@@ -532,9 +566,23 @@ class BYOKProposer:
             if target.is_symlink():
                 raise ConsumerError("CANDIDATE_UNSAFE", f"{rel}: 不允许符号链接。", "改用常规文件。")
             validated.append((target, content))
-        for target, content in validated:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            engine_store.atomic_write_text(target, content)
+        written: list[tuple[Path, bytes | None]] = []
+        try:
+            for target, content in validated:
+                previous = target.read_bytes() if target.is_file() else None
+                target.parent.mkdir(parents=True, exist_ok=True)
+                engine_store.atomic_write_text(target, content)
+                written.append((target, previous))
+        except Exception:
+            for target, previous in reversed(written):
+                try:
+                    if previous is None:
+                        target.unlink()
+                    else:
+                        engine_store.atomic_write_bytes(target, previous)
+                except OSError:
+                    pass
+            raise
 
     def _patch_mode(
         self,
@@ -548,14 +596,20 @@ class BYOKProposer:
         record,
     ) -> dict:
         tree = read_tree(guard.root)
-        file_list = "\n".join(f"- {rel}" for rel in sorted(tree)[:400])
+        names = sorted(tree)
+        file_list = "\n".join(f"- {rel}" for rel in names[:400])
+        if len(names) > 400:
+            file_list += f"\n… {len(names) - 400} more files (not listed)"
         contents = []
         remaining = MAX_CONTEXT_CHARS
-        for rel in sorted(tree):
+        for rel in names:
             if remaining <= 0:
+                contents.append("\n…[remaining files omitted: context limit]")
                 break
             text = tree[rel]
-            chunk = f"\n===== {rel} =====\n{text[:remaining]}"
+            body = text[:remaining]
+            suffix = "\n…[truncated: context limit]" if len(text) > len(body) else ""
+            chunk = f"\n===== {rel} =====\n{body}{suffix}"
             contents.append(chunk)
             remaining -= len(chunk)
         messages = [
@@ -578,6 +632,8 @@ class BYOKProposer:
                 ),
             },
         ]
+        if self.precall is not None:
+            self.precall("propose-patch")
         completion = ProvidersManager.complete_with_fallback(
             self.clients,
             messages,

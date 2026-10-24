@@ -45,7 +45,32 @@ let childOwnsHost = false;
 let quitting = false;
 let hintShown = false;
 let closeToTray = true;
+let startMinimized = false;
 let pollTimer: NodeJS.Timeout | null = null;
+let notificationTimer: NodeJS.Timeout | null = null;
+let notificationSeeded = false;
+const candidateStates = new Map<string, string>();
+
+interface NotificationSettings {
+  cadence?: {
+    system_notifications?: boolean;
+    notification_sound?: boolean;
+    quiet_hours?: [string, string] | null;
+  };
+}
+
+interface NotificationStatus {
+  learning?: { paused?: boolean; vacation?: boolean; focus?: boolean };
+}
+
+interface NotificationCandidate {
+  id?: string;
+  state?: string;
+  automatic?: boolean;
+  confidence?: string;
+  presented?: boolean;
+  present_after?: string;
+}
 
 const ALLOWED_EXTERNAL = new Set([
   "platform.openai.com",
@@ -56,6 +81,18 @@ const ALLOWED_EXTERNAL = new Set([
   "ollama.com",
   "github.com",
 ]);
+
+const PICK_FOLDER_KINDS = ["install", "config", "project"] as const;
+type PickFolderKind = (typeof PICK_FOLDER_KINDS)[number];
+const PICK_FOLDER_TITLES: Record<PickFolderKind, string> = {
+  install: "选择 Harness 安装目录 / Choose the Harness install folder",
+  config: "选择 Harness 配置目录 / Choose the Harness config folder",
+  project: "选择工作区或项目目录 / Choose a workspace or project folder",
+};
+
+function isPickFolderKind(value: unknown): value is PickFolderKind {
+  return typeof value === "string" && (PICK_FOLDER_KINDS as readonly string[]).includes(value);
+}
 
 function iconPath(): string {
   return join(app.getAppPath(), "build", "icon.png");
@@ -82,7 +119,97 @@ function validSender(event: Electron.IpcMainInvokeEvent): boolean {
   const frame = event.senderFrame;
   if (!frame) return false;
   if (!server) return false;
-  return localOrigin(frame.url) === localOrigin(server.base_url);
+  const frameOrigin = localOrigin(frame.url);
+  const expected = localOrigin(server.base_url);
+  // Both sides must be a concrete loopback origin; two nulls must never compare equal.
+  return Boolean(frameOrigin && expected && frameOrigin === expected);
+}
+
+function inQuietHours(window: [string, string] | null | undefined, now = new Date()): boolean {
+  if (!Array.isArray(window) || window.length !== 2) return false;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const parse = (value: string): number => {
+    const [hour, minute] = String(value).split(":").map(Number);
+    return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : NaN;
+  };
+  const start = parse(window[0]);
+  const end = parse(window[1]);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+  return start <= end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+}
+
+function showSystemNotification(body: string, sound = false): void {
+  if (!Notification.isSupported()) return;
+  // Never include session content, filenames, diffs or keys.
+  new Notification({ title: "harness2-morphd", body, silent: !sound }).show();
+}
+
+async function pollSuggestionNotifications(): Promise<void> {
+  if (!server) return;
+  try {
+    const [settings, status, payload] = await Promise.all([
+      api(server, "GET", "/api/settings") as Promise<NotificationSettings>,
+      api(server, "GET", "/api/status") as Promise<NotificationStatus>,
+      api(server, "GET", "/api/candidates") as unknown as Promise<NotificationCandidate[]>,
+    ]);
+    const candidates = (Array.isArray(payload) ? payload : []).filter((item) => item.id);
+    const current = new Map<string, string>();
+    const sound = Boolean(settings.cadence?.notification_sound);
+    const eligible =
+      Boolean(settings.cadence?.system_notifications) &&
+      !status.learning?.paused &&
+      !status.learning?.vacation &&
+      !status.learning?.focus &&
+      !inQuietHours(settings.cadence?.quiet_hours);
+
+    for (const candidate of candidates) {
+      const id = String(candidate.id);
+      const state = String(candidate.state || "");
+      const previous = candidateStates.get(id);
+      current.set(id, state);
+      if (!notificationSeeded) continue;
+      const isNew = previous === undefined;
+      if (!isNew && previous === state) continue;
+      if (!eligible) continue;
+      if (
+        candidate.automatic &&
+        candidate.presented &&
+        (state === "applied" || state === "trial") &&
+        (isNew || previous === "needs_apply")
+      ) {
+        showSystemNotification("已自动应用一条改进；可在历史中查看或撤销。", sound);
+      } else if (
+        state === "needs_apply" &&
+        candidate.presented &&
+        candidate.confidence === "high" &&
+        (!candidate.present_after ||
+          new Date(candidate.present_after).getTime() <= Date.now())
+      ) {
+        showSystemNotification(
+          "有一条高置信度改进建议已准备好；打开 harness2-morphd 查看。",
+          sound,
+        );
+      }
+    }
+    candidateStates.clear();
+    for (const [id, state] of current) candidateStates.set(id, state);
+    notificationSeeded = true;
+  } catch {
+    /* local service unavailable; the tray/window already show the disconnect */
+  }
+}
+
+function startSuggestionNotifications(): void {
+  if (notificationTimer) clearInterval(notificationTimer);
+  notificationSeeded = false;
+  candidateStates.clear();
+  void pollSuggestionNotifications();
+  notificationTimer = setInterval(() => void pollSuggestionNotifications(), 15000);
+}
+
+function stopSuggestionNotifications(): void {
+  if (notificationTimer) clearInterval(notificationTimer);
+  notificationTimer = null;
 }
 
 function createWindow(info: ServerInfo): void {
@@ -106,7 +233,9 @@ function createWindow(info: ServerInfo): void {
     },
   });
   const win = mainWindow;
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    if (!startMinimized || configOnly) win.show();
+  });
   win.on("close", (event) => {
     if (!quitting && closeToTray && tray?.available()) {
       event.preventDefault();
@@ -246,6 +375,16 @@ function wireIpc(): void {
     mainWindow?.show();
     void mainWindow?.webContents.executeJavaScript("window.location.hash = '#/learning'");
   });
+  ipcMain.handle("morphd:pick-folder", async (event, kind: unknown) => {
+    if (!validSender(event) || !mainWindow) throw new Error("forbidden");
+    if (!isPickFolderKind(kind)) throw new Error("invalid folder kind");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: PICK_FOLDER_TITLES[kind],
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { path: "" };
+    return { path: result.filePaths[0] };
+  });
   ipcMain.handle("morphd:pause", async (event, until: unknown) => {
     if (!validSender(event) || !server || typeof until !== "string") throw new Error("forbidden");
     return api(server, "POST", "/api/learning/pause", { until });
@@ -279,10 +418,16 @@ function startPolling(): void {
         if (!quitting) app.quit();
         return;
       }
+      await api(info, "GET", "/api/status");
       server = info;
       tray?.updateInfo(info);
     } catch {
-      /* keep the window; the API layer handles disconnects */
+      // A dead or hijacked server must not leave an orphan window/tray. Verify once more
+      // through process liveness before exiting.
+      if (!readServer(home)) {
+        tray?.stop();
+        if (!quitting) app.quit();
+      }
     }
   }, 5000);
 }
@@ -320,12 +465,14 @@ async function boot(): Promise<void> {
   server = info;
   createWindow(info);
   let trayEnabled = true;
+  let badgeEnabled = false;
   try {
     const settings = (await api(info, "GET", "/api/settings")) as {
-      cadence?: { tray_enabled?: boolean; close_window?: string };
+      cadence?: { tray_enabled?: boolean; close_window?: string; suggestion_badge?: boolean };
     };
     trayEnabled = settings.cadence?.tray_enabled !== false;
     closeToTray = settings.cadence?.close_window !== "exit";
+    badgeEnabled = settings.cadence?.suggestion_badge === true;
   } catch {
     trayEnabled = true;
     closeToTray = true;
@@ -346,7 +493,9 @@ async function boot(): Promise<void> {
         stopLearningAndQuit: () => void confirmStopLearning(),
       },
       iconPath(),
+      join(app.getAppPath(), "build", "icon-badge.png"),
     );
+    tray.setBadgeEnabled(badgeEnabled);
     if (!tray.start()) {
       tray = null;
       if (mainWindow) {
@@ -358,6 +507,7 @@ async function boot(): Promise<void> {
       }
     }
   }
+  if (mode !== "config") startSuggestionNotifications();
   startPolling();
 }
 
@@ -375,6 +525,7 @@ if (!gotLock) {
   app.on("before-quit", () => {
     quitting = true;
     if (pollTimer) clearInterval(pollTimer);
+    stopSuggestionNotifications();
     tray?.stop();
     // A host wrapper owns its host and engine; never kill the user's host here.
     if (child && !child.killed && !childOwnsHost) {

@@ -15,9 +15,9 @@ harness2-morphd 是一个**本地优先、宿主内运行**的 Agent harness 自
 - **不常驻**：没有 daemon、cron、systemd、launchd、开机自启或独立后台队列。
 
 > **交付状态**：Windows 源码、测试、Windows 引擎打包、npm 包和 Electron NSIS/portable
-> 安装器均已就绪。产物**未做 Authenticode 签名**；当前发布为未签名正式版，安装时可能出现
-> SmartScreen 提示。真实宿主生命周期和真实模型调用仍需在目标机器上验收，未验证项在
-> [`docs/verification.md`](docs/verification.md) 中标注 `n/a`/beta。
+> 安装器均已就绪。发布 CI 已接入可选 Authenticode 签名；未配置证书时产物保持**未签名**，
+> 安装时可能出现 SmartScreen 提示。真实宿主生命周期和真实模型调用仍需在目标机器上验收，
+> 未验证项在 [`docs/verification.md`](docs/verification.md) 中标注 `n/a`/beta。
 
 ---
 
@@ -61,7 +61,7 @@ npx @harness2-morphd/cli@latest uninstall
 ```
 
 `setup` 完成宿主检测/适配，并打开三步引导 UI（宿主、模型/BYOK、预算与隐私）。
-完成引导后按 Ctrl+C 关闭临时安装器 UI；安装器不会常驻。平台引擎通过
+完成引导后临时安装器 UI 自动关闭；安装器不会常驻。找不到宿主时仍会打开 UI，供你手动选择文件夹。平台引擎通过
 `@harness2-morphd/win32-x64` 经 `optionalDependencies` 分发，不使用任意 `postinstall`，
 不从任意 URL 下载可执行文件。
 
@@ -202,6 +202,7 @@ npm --prefix consumer/electron install --ignore-scripts
 
 # 全量校验
 npm test                       # ruff + pytest + web + CLI + tray + Electron 安全测试
+npm run web:visual             # Playwright/Edge 视觉 + axe + 键盘矩阵（35 扫描）
 npm run verify:vendor          # vendor SHA256 校验
 
 # Web UI
@@ -246,7 +247,8 @@ Claude `SessionEnd` hook。没有原生 hook 时，会话结束分析在下次�
 
 ## 已知限制
 
-- Windows 引擎与 Electron 安装器**未做 Authenticode 签名**；SmartScreen 可能提示未知发布者。
+- Windows 引擎与 Electron 安装器默认**未做 Authenticode 签名**（配置发布证书 secrets 后可签名）；
+  SmartScreen 可能提示未知发布者。
 - 未提供 macOS/Linux 平台包、安装器或系统托盘支持。
 - 真实 dsh/Claude/Codex 生命周期、Codex 事件/续跑、Claude `stream-json` 完整 schema 仍需
   在目标机器验收；以 `n/a`/beta 标注，不用 0 或空轨迹替代。

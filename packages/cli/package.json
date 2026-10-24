@@ -3,6 +3,11 @@
   "version": "0.5.0",
   "description": "harness2-morphd setup, doctor, update and uninstall launcher for Windows 10/11 x64",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a742987/harness2-morphd.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
     "morphd": "dist/index.js"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,9 +71,11 @@ def resolve_channel(settings: config.Settings, options: RunOptions) -> tuple[str
         or store_read_env("MORPHD_PROPOSER_MODEL")
         or store_read_env("HARNESS2_IMPROVER_MODEL")
     )
-    if channel not in ("claude_cli", "opencode"):
-        raise RunError(f"unknown proposer channel {channel!r}; expected claude_cli or opencode")
-    if not options.dry_run and not model:
+    if channel not in ("claude_cli", "opencode", "byok"):
+        raise RunError(
+            f"unknown proposer channel {channel!r}; expected claude_cli, opencode or byok"
+        )
+    if channel != "byok" and not options.dry_run and not model:
         raise RunError(
             "no proposer model configured; set --proposer-model / MORPHD_PROPOSER_MODEL / "
             "HARNESS2_IMPROVER_MODEL"
@@ -141,6 +144,10 @@ def _build_adapters(
     guards: dict[str, budget.BudgetGuard],
 ) -> dict[str, object]:
     out = {}
+    # Upstream only accepts its own channel kinds. BYOK is injected as the actual
+    # proposer object, so the adapter spec uses a legal placeholder channel.
+    spec_channel = "claude_cli" if channel == "byok" else channel
+    spec_model = (model or "byok-placeholder") if channel == "byok" else model
     for runtime in options.runtimes:
         rt_model = options.models.get(runtime) or settings.model_for(runtime)
         out[runtime] = runtimes.build_adapter(
@@ -151,8 +158,8 @@ def _build_adapters(
             guard=guards[runtime],
             model=rt_model,
             runs_root=settings.runtime_runs_root(runtime),
-            proposer_channel=channel,
-            proposer_model=model,
+            proposer_channel=spec_channel,
+            proposer_model=spec_model,
         )
     return out
 
@@ -225,6 +232,23 @@ class GuardedProposer:
 
 
 def _check_proposer_ready(channel: str) -> None:
+    if channel == "byok":
+        from .consumer.providers import ProvidersManager
+        from .consumer.service import ConsumerService
+        from .consumer.settings import SettingsManager
+
+        service = ConsumerService(
+            Path(os.environ.get("MORPHD_HOME", Path.home() / ".morphd"))
+        )
+        settings = SettingsManager(service.store).load()
+        try:
+            ProvidersManager(service.store).clients_for_role(settings, "proposer")
+        except Exception as exc:
+            raise RunError(
+                "the byok proposer needs a configured proposer provider/key "
+                f"(models page): {exc}"
+            ) from exc
+        return
     if channel == "claude_cli":
         if shutil.which("claude") is None:
             raise RunError(
@@ -243,7 +267,25 @@ def _check_proposer_ready(channel: str) -> None:
         )
 
 
-def _make_proposer(spec, audit_dir: Path, guard: budget.BudgetGuard, price: pricing.Pricing, channel: str):
+def _make_proposer(
+    spec,
+    audit_dir: Path,
+    guard: budget.BudgetGuard,
+    price: pricing.Pricing,
+    channel: str,
+    adapter=None,
+):
+    if channel == "byok":
+        from .byok_proposer import BYOKUpstreamProposer
+
+        return BYOKUpstreamProposer(
+            spec=spec,
+            adapter=adapter,
+            guard=guard,
+            price=price,
+            audit_dir=audit_dir,
+            consumer_home=Path(adapter.settings.home) if adapter is not None else None,
+        )
     proposer_mod = _upstream.core("proposer")
     inner = proposer_mod.Proposer(spec, audit_dir=audit_dir)
     return GuardedProposer(inner, guard, price, channel)
@@ -444,7 +486,9 @@ def execute(options: RunOptions, settings: config.Settings) -> dict:
             )
         except Exception:
             pass
-        prop = _make_proposer(adapter.spec.channels["proposer"], audit_dir, guard, price, channel)
+        prop = _make_proposer(
+            adapter.spec.channels["proposer"], audit_dir, guard, price, channel, adapter
+        )
         print(
             f"sweep {ns}: runtime={runtime} {options.workers} domain(s) parallel, "
             f"tasks in stream order",
@@ -470,6 +514,7 @@ def execute(options: RunOptions, settings: config.Settings) -> dict:
                 only_tasks=options.only_tasks,
                 max_tasks=options.max_tasks,
                 pool_policy="finals",
+                selector_prop=prop if channel == "byok" else None,
             )
             if guard.exceeded:
                 status = "interrupted"

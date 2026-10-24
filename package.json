@@ -7,6 +7,7 @@
     "web:install": "npm --prefix consumer/web install",
     "web:build": "npm --prefix consumer/web run build",
     "web:test": "npm --prefix consumer/web test",
+    "web:visual": "npm --prefix consumer/web run test:visual:matrix",
     "cli:build": "npm --prefix packages/cli run build",
     "cli:test": "npm --prefix packages/cli test",
     "tray:test": "npm --prefix packages/tray test",
@@ -20,7 +21,10 @@
     "lint:python": ".venv-win\\Scripts\\ruff.exe check morphd tests",
     "test:python": ".venv-win\\Scripts\\python.exe -X utf8 -m pytest -q",
     "test": "npm run lint:python && npm run test:python && npm run web:test && npm run cli:test && npm run tray:test && npm run electron:test",
-    "verify": "npm run verify:vendor && npm run test",
+    "verify": "npm run verify:vendor && npm run test && npm run web:visual",
+    "sbom": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate_sbom.ps1 -OutFile release/sbom.cdx.json -ReleaseDir release",
+    "verify:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_release.ps1 -AllowUnsigned",
+    "verify:release:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_release.ps1",
     "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_release.ps1"
   }
 }

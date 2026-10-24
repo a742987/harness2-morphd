@@ -55,6 +55,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "close_window": "tray",
         "idle_delay_minutes": 0,
         "tray_enabled": True,
+        "auto_apply_window_start": "22:00",
+        "auto_apply_window_end": "08:00",
     },
     "privacy": {
         "telemetry": False,
@@ -62,6 +64,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "excluded_globs": [],
         "local_only": False,
         "auto_discover_hosts": True,
+        "paused_session_recording": "minimal",
+        "snapshot_limit": 10,
     },
     "ui": {
         "theme": "system",
@@ -72,6 +76,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "style": "concise",
         "beginner": True,
         "terminology_tooltips": True,
+        "screen_reader_optimized": True,
     },
     "models": {
         "preset": "balanced",
@@ -149,6 +154,9 @@ def validate_settings(payload: dict) -> dict:
         raise SettingsError("未知的变更幅度")
     if not isinstance(merged["enabled"], bool):
         raise SettingsError("enabled 必须是布尔值")
+    for key in ("auto_apply", "auto_rollback"):
+        if not isinstance(merged[key], bool):
+            raise SettingsError(f"{key} 必须是布尔值")
     if merged["analysis"]["depth"] not in ANALYSIS_DEPTHS:
         raise SettingsError("未知的分析深度")
     if merged["analysis"]["k"] not in (1, 2, 3):
@@ -163,6 +171,15 @@ def validate_settings(payload: dict) -> dict:
         raise SettingsError("关闭窗口行为只能是 tray 或 exit")
     if not isinstance(merged["cadence"]["tray_enabled"], bool):
         raise SettingsError("cadence.tray_enabled 必须是布尔值")
+    for key in (
+        "focus_mode",
+        "system_notifications",
+        "notification_sound",
+        "start_minimized",
+        "suggestion_badge",
+    ):
+        if not isinstance(merged["cadence"][key], bool):
+            raise SettingsError(f"cadence.{key} 必须是布尔值")
 
     trial = merged["trial_sessions"]
     if not isinstance(trial, int) or not 1 <= trial <= 10:
@@ -184,6 +201,10 @@ def validate_settings(payload: dict) -> dict:
         for item in quiet:
             if not isinstance(item, str) or not _TIME_RE.match(item):
                 raise SettingsError("静默时段格式必须是 HH:MM")
+    for key in ("auto_apply_window_start", "auto_apply_window_end"):
+        value = merged["cadence"][key]
+        if not isinstance(value, str) or not _TIME_RE.match(value):
+            raise SettingsError("自动应用时间窗格式必须是 HH:MM")
 
     budget = merged["budget"]
     for key in ("monthly_usd", "per_session_usd", "per_job_usd"):
@@ -201,6 +222,12 @@ def validate_settings(payload: dict) -> dict:
     for key in ("telemetry", "local_only", "auto_discover_hosts"):
         if not isinstance(privacy[key], bool):
             raise SettingsError(f"privacy.{key} 必须是布尔值")
+    if privacy["paused_session_recording"] not in ("minimal", "none", "full"):
+        raise SettingsError("暂停期间的会话记录方式无效")
+    if isinstance(privacy["snapshot_limit"], bool) or not isinstance(
+        privacy["snapshot_limit"], int
+    ) or not 5 <= privacy["snapshot_limit"] <= 50:
+        raise SettingsError("快照保留数量必须在 5–50 之间")
     retention = privacy["retention_days"]
     if retention not in (0, 7, 30, 90):
         raise SettingsError("数据保留必须是 7/30/90 天或永久")
@@ -222,7 +249,7 @@ def validate_settings(payload: dict) -> dict:
         raise SettingsError("未知动效设置")
     if ui["style"] not in STYLES:
         raise SettingsError("未知建议风格")
-    for key in ("beginner", "terminology_tooltips"):
+    for key in ("beginner", "terminology_tooltips", "screen_reader_optimized"):
         if not isinstance(ui[key], bool):
             raise SettingsError(f"ui.{key} 必须是布尔值")
 
@@ -231,17 +258,24 @@ def validate_settings(payload: dict) -> dict:
         raise SettingsError("未知模型预设")
     for role in ("proposer", "composer", "selector", "judge"):
         value = models.get(role)
-        if value is not None and not isinstance(value, str):
-            raise SettingsError(f"models.{role} 必须是字符串或 null")
+        if value is None or value == "":
+            continue
+        if not isinstance(value, str) or parse_role(value) is None:
+            raise SettingsError(f"models.{role} 必须是 provider/model 引用")
     if not isinstance(models["fallbacks"], list) or len(models["fallbacks"]) > 3:
         raise SettingsError("fallback 最多 3 个")
-    if not all(isinstance(item, str) and item for item in models["fallbacks"]):
-        raise SettingsError("fallback 必须是模型引用")
+    for item in models["fallbacks"]:
+        if not isinstance(item, str) or parse_role(item) is None:
+            raise SettingsError("fallback 必须是 provider/model 引用")
 
     enterprise = merged["enterprise"]
     for key in ("strict", "dual_approval", "container"):
         if not isinstance(enterprise[key], bool):
             raise SettingsError(f"enterprise.{key} 必须是布尔值")
+    if not isinstance(enterprise["egress_allowlist"], list) or not all(
+        isinstance(host, str) and host.strip() for host in enterprise["egress_allowlist"]
+    ):
+        raise SettingsError("enterprise.egress_allowlist 必须是非空字符串列表")
     if enterprise["strict"] and not enterprise["dual_approval"]:
         merged["enterprise"]["dual_approval"] = True
 
@@ -288,6 +322,30 @@ def validate_project(payload: dict, *, root: Path | None = None) -> dict:
         raise SettingsError("排除规则必须是列表")
     if not isinstance(merged["domain"], str) or not merged["domain"].strip():
         raise SettingsError("domain 不能为空")
+    pbudget = merged.get("budget") or {}
+    if not isinstance(pbudget, dict):
+        raise SettingsError("项目 budget 必须是对象")
+    for key in ("monthly_usd", "per_session_usd", "per_job_usd", "alert_ratio"):
+        if key in pbudget:
+            pbudget[key] = _number(pbudget[key])
+    if "alert_ratio" in pbudget and not 0 <= pbudget["alert_ratio"] <= 1:
+        raise SettingsError("项目预算提醒比例必须在 0–1 之间")
+    if "per_session_usd" in pbudget and "monthly_usd" in pbudget:
+        if pbudget["per_session_usd"] > pbudget["monthly_usd"]:
+            raise SettingsError("项目单会话预算不能高于项目月度预算")
+    pcadence = merged.get("cadence") or {}
+    if not isinstance(pcadence, dict):
+        raise SettingsError("项目 cadence 必须是对象")
+    if "weekly_cap" in pcadence:
+        cap = pcadence["weekly_cap"]
+        if isinstance(cap, bool) or not isinstance(cap, int) or not 0 <= cap <= 10:
+            raise SettingsError("项目每周上限必须在 0–10 之间")
+    if pcadence.get("quiet_hours") is not None:
+        qh = pcadence["quiet_hours"]
+        if not isinstance(qh, list) or len(qh) != 2 or not all(
+            isinstance(x, str) and _TIME_RE.match(x) for x in qh
+        ):
+            raise SettingsError("项目静默时段格式必须是 HH:MM")
     return merged
 
 
@@ -414,10 +472,14 @@ def effective_settings(settings: dict, project: dict | None) -> dict:
     merged["privacy"]["excluded_globs"] = excluded
     if project.get("retention_days") is not None:
         merged["privacy"]["retention_days"] = project["retention_days"]
-    for key in ("monthly_usd", "per_session_usd", "per_job_usd", "alert_ratio"):
+    for key in ("monthly_usd", "per_session_usd", "per_job_usd"):
         value = (project.get("budget") or {}).get(key)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            merged["budget"][key] = float(value)
+            # A project may tighten a budget but never raise it above the global hard cap.
+            merged["budget"][key] = min(float(value), float(settings["budget"][key]))
+    value = (project.get("budget") or {}).get("alert_ratio")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        merged["budget"]["alert_ratio"] = float(value)
     for key in ("weekly_cap", "quiet_hours", "digest", "focus_mode"):
         value = (project.get("cadence") or {}).get(key)
         if value is not None:

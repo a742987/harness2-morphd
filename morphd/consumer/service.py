@@ -17,6 +17,7 @@ from .errors import ConsumerError
 from .hosts import HOST_LABELS, HostManager
 from .jobs import JobRunner
 from .keychain import KeyVault
+from .manual import ManualProjectManager
 from .privacy import delete_scope, export_bundle, retention_sweep, write_export
 from .privacy import diagnostics as build_diagnostics
 from .providers import ProvidersManager, estimate_analysis_usd
@@ -52,6 +53,11 @@ class ConsumerService:
     def start(self) -> None:
         require_windows()
         self.budget.release_stale()
+        try:
+            retention_sweep(self.store)
+        except Exception as exc:
+            self.store.append_log("retention_failed", error=type(exc).__name__)
+        self.store.cleanup_temp()
         self._drain_spool()
         self.jobs.start()
         self.store.append_log("service_started", version=APP_VERSION)
@@ -71,9 +77,14 @@ class ConsumerService:
             alert_ratio=float(settings["budget"]["alert_ratio"]),
         )
         installed = self.hosts.install_records()
+        paused = self.attention.is_paused()
+        incognito = self.attention.is_incognito(None)
+        live_hosts = _live_host_keys(self.store.home) | set(self.connected_hosts)
         return {
             "version": API_VERSION,
             "app_version": APP_VERSION,
+            "paused": paused,
+            "incognito": incognito,
             "hosts": [
                 {
                     "host": record.get("host"),
@@ -81,19 +92,20 @@ class ConsumerService:
                     "version": record.get("version"),
                     "integration": record.get("integration"),
                     "status": record.get("status"),
-                    "connected": bool(self.connected_hosts.get(record.get("host"))),
+                    "connected": record.get("host") in live_hosts,
                     "wrapper": record.get("wrapper"),
                     "project_root": record.get("project_root"),
                 }
                 for record in installed
             ],
-            "connected_hosts": sorted(self.connected_hosts),
+            "connected_hosts": sorted(live_hosts),
             "learning": {
                 "enabled": bool(settings.get("enabled")),
-                "paused": self.attention.is_paused(),
+                "paused": paused,
                 "paused_until": state.get("paused_until"),
                 "paused_forever": bool(state.get("paused_forever")),
                 "vacation": bool(state.get("vacation")),
+                "incognito": incognito,
                 "incognito_next": bool(state.get("incognito_next")),
                 "incognito_sessions": state.get("incognito_sessions", []),
                 "active_sessions": state.get("active_sessions", []),
@@ -111,6 +123,7 @@ class ConsumerService:
                 "status": self.tray_status(settings),
             },
             "vault": self.keyvault.backend_status(),
+            "feedback": self.attention.feedback_overview(),
             "started_at": self.started_at,
         }
 
@@ -129,10 +142,20 @@ class ConsumerService:
             return "budget_exhausted"
         if not any(r.get("status") in ("adapted", "beta") for r in self.hosts.install_records()):
             return "not_connected"
+        if not (_live_host_keys(self.store.home) | set(self.connected_hosts)):
+            return "not_connected"
         if self.jobs.current_job:
             return "learning"
         if not settings.get("models", {}).get("proposer"):
             return "needs_setup"
+        prompts = self.attention.feedback_overview().get("prompts") or []
+        if prompts:
+            return "needs_attention"
+        for job in self.store.list_records("jobs")[:20]:
+            error = job.get("error") or {}
+            code = str(error.get("code") if isinstance(error, dict) else "")
+            if job.get("state") == "failed" and code.startswith("PROVIDER_"):
+                return "model_error"
         return "idle"
 
     # --- settings -------------------------------------------------------------
@@ -166,7 +189,9 @@ class ConsumerService:
             self.store.append_log("learning_disabled")
         return updated
 
-    def reset_settings(self) -> dict:
+    def reset_settings(self, *, confirm: bool = False) -> dict:
+        if not confirm:
+            raise ConsumerError("INVALID_REQUEST", "重置全部设置前需要确认。", "再次确认后重试。")
         return self.settings_manager.reset()
 
     # --- projects -------------------------------------------------------------
@@ -183,9 +208,11 @@ class ConsumerService:
         return self.projects.save(project_id, payload)
 
     # --- providers ------------------------------------------------------------
-    def providers_list(self) -> dict:
+    def providers_list(self) -> list[dict]:
+        return self.providers.public_providers()
+
+    def providers_catalog(self) -> dict:
         return {
-            "providers": self.providers.public_providers(),
             "catalog": catalog.provider_help(),
             "presets": catalog.MODEL_PRESETS,
             "vault": self.keyvault.backend_status(),
@@ -200,6 +227,11 @@ class ConsumerService:
     def provider_delete(self, provider_id: str) -> dict:
         self.providers.delete(provider_id)
         return {"ok": True, "id": provider_id}
+
+    def providers_delete_all(self, *, confirm: bool = False) -> dict:
+        if not confirm:
+            raise ConsumerError("INVALID_REQUEST", "删除全部 Key 前需要确认。", "再次确认后重试。")
+        return self.providers.delete_all()
 
     def provider_test(self, provider_id: str | None, payload: dict | None = None) -> dict:
         return self.providers.test(provider_id, payload, (payload or {}).get("api_key"))
@@ -219,7 +251,9 @@ class ConsumerService:
             return self.hosts.discover(kinds=[])
         return self.hosts.discover(force=force)
 
-    def hosts_adapt(self, payload: dict) -> dict:
+    def hosts_adapt(self, payload: dict, *, confirm: bool = False) -> dict:
+        if not confirm:
+            raise ConsumerError("INVALID_REQUEST", "适配宿主前需要确认。", "核对将备份和写入的路径后重试。")
         if payload.get("manual"):
             candidate = self.hosts.validate_manual(
                 str(payload.get("kind")),
@@ -243,7 +277,9 @@ class ConsumerService:
         )
         return record
 
-    def host_uninstall(self, kind: str) -> dict:
+    def host_uninstall(self, kind: str, *, confirm: bool = False) -> dict:
+        if not confirm:
+            raise ConsumerError("INVALID_REQUEST", "卸载宿主适配前需要确认。", "再次确认后重试。")
         result = self.hosts.uninstall(kind)
         self.connected_hosts.pop(kind, None)
         return result
@@ -267,6 +303,23 @@ class ConsumerService:
                 "直接输入路径；Electron 桌面版提供原生选择器。",
             )
         return {"path": path}
+
+    # --- project-only read-only scopes ---------------------------------------
+    # These scopes are deliberately kept apart from adapters: they never appear in
+    # ``status()["hosts"]``, never write to the host config/project, and importing only
+    # records a session for manual analysis (no job, no model call).
+    def manual_projects_list(self) -> list[dict]:
+        return ManualProjectManager(self.store).list()
+
+    def manual_project_register(self, payload: dict) -> dict:
+        return ManualProjectManager(self.store).register(payload)
+
+    def manual_project_delete(self, scope_id: str) -> dict:
+        return ManualProjectManager(self.store).delete(scope_id)
+
+    def manual_project_import(self, scope_id: str) -> dict:
+        record = ManualProjectManager(self.store).import_latest(scope_id)
+        return {"session": self.public_session(record), "source": "manual-project"}
 
     # --- sessions / jobs ------------------------------------------------------
     def sessions_list(self, *, limit: int = 100, project_id: str | None = None) -> list[dict]:
@@ -360,10 +413,18 @@ class ConsumerService:
                 }
             )
             result = self.jobs.handle_session_end(context, manual=True)
+            if not result.get("queued"):
+                return {
+                    "ok": True,
+                    "job_id": None,
+                    "queued": False,
+                    "reason": result.get("reason", "not_queued"),
+                    "requires_confirmation": False,
+                }
             job_id = result.get("job_id")
         session["status"] = "queued"
         self.store.write_record("sessions", session_id, session)
-        return {"ok": True, "job_id": job_id, "requires_confirmation": False}
+        return {"ok": True, "job_id": job_id, "queued": True, "requires_confirmation": False}
 
     def jobs_list(self, *, state: str | None = None) -> list[dict]:
         records = self.store.list_records("jobs")
@@ -383,6 +444,8 @@ class ConsumerService:
             "created_at": record.get("created_at"),
             "updated_at": record.get("updated_at"),
             "attempts": record.get("attempts"),
+            "budget": record.get("budget"),
+            "model": record.get("model"),
             "candidate_id": record.get("candidate_id"),
             "cost_usd": record.get("cost_usd"),
             "reason": record.get("reason"),
@@ -418,11 +481,11 @@ class ConsumerService:
             if key not in ("base_tree", "candidate_tree", "applied_files")
         }
 
-    def candidate_apply(self, candidate_id: str) -> dict:
-        return self.public_candidate(self.candidates.apply(candidate_id, confirm=True))
+    def candidate_apply(self, candidate_id: str, *, confirm: bool = False) -> dict:
+        return self.public_candidate(self.candidates.apply(candidate_id, confirm=confirm))
 
-    def candidate_revert(self, candidate_id: str) -> dict:
-        return self.public_candidate(self.candidates.revert(candidate_id, confirm=True))
+    def candidate_revert(self, candidate_id: str, *, confirm: bool = False) -> dict:
+        return self.public_candidate(self.candidates.revert(candidate_id, confirm=confirm))
 
     def candidate_feedback(self, candidate_id: str, payload: dict) -> dict:
         result = self.candidates.feedback(
@@ -476,6 +539,19 @@ class ConsumerService:
     def incognito(self, active: bool, session_id: str | None = None) -> dict:
         return self.attention.set_incognito(active, session_id)
 
+    def feedback_respond(self, project_id: str, reason: str) -> dict:
+        allowed = ("intrusive", "expensive", "not_useful", "wrong", "resume")
+        if reason not in allowed:
+            raise ConsumerError(
+                "INVALID_REQUEST", "未知的反馈原因。", "选择太吵、太贵或不相关。"
+            )
+        if project_id and not isinstance(
+            self.store.read_record("projects", project_id), dict
+        ):
+            raise ConsumerError("NOT_FOUND", "这个项目不存在。", "刷新页面后重试。")
+        stats = self.attention.respond_feedback(project_id, reason)
+        return {"ok": True, "attention": stats}
+
     def session_start(self, payload: dict) -> dict:
         host = str(payload.get("host") or "")
         session_id = str(payload.get("session_id") or "")
@@ -513,8 +589,16 @@ class ConsumerService:
         return result
 
     def ingest_latest_for_host(self, kind: str, *, end_reason: str = "completed") -> dict | None:
-        path = _latest_session_file(kind, self.hosts.record_for(kind) or {})
+        record = self.hosts.record_for(kind) or {}
+        project_root = Path(str(record.get("project_root") or "")).expanduser()
+        path = _latest_session_file(kind, record, project_root=project_root)
         if path is None:
+            return None
+        if not project_root.is_absolute() or not project_root.is_dir():
+            # Do not guess the project from the process cwd; a wrong project would mix
+            # sessions and budgets. Without an adapted project root we leave the checkpoint
+            # for the next explicit start rather than importing into the wrong scope.
+            self.store.append_log("host_exit_ingest_skipped", host=kind, reason="no_project_root")
             return None
         try:
             from datetime import datetime
@@ -528,8 +612,8 @@ class ConsumerService:
             context = ingest(
                 host=kind,
                 events_path=path,
-                workspace=Path.cwd(),
-                project_root=Path.cwd(),
+                workspace=project_root,
+                project_root=project_root,
                 end_reason=end_reason,
             )
         except Exception as exc:
@@ -545,7 +629,9 @@ class ConsumerService:
         session = self.session_get(session_id)
         return self.jobs.analyzer.preview(session)
 
-    def privacy_delete(self, payload: dict) -> dict:
+    def privacy_delete(self, payload: dict, *, confirm: bool = False) -> dict:
+        if not confirm:
+            raise ConsumerError("INVALID_REQUEST", "删除本地数据前需要确认。", "再次确认后重试。")
         scope = str(payload.get("scope") or "")
         return delete_scope(
             self.store,
@@ -561,10 +647,12 @@ class ConsumerService:
     def privacy_retention(self) -> dict:
         return retention_sweep(self.store)
 
-    def reset_learning(self) -> dict:
+    def reset_learning(self, *, confirm: bool = False) -> dict:
         """Delete suggestions/jobs and derived trial state; keep settings, keys and sessions."""
         import shutil
 
+        if not confirm:
+            raise ConsumerError("INVALID_REQUEST", "重置学习记录前需要确认。", "再次确认后重试。")
         removed = {"candidates": 0, "jobs": 0, "diffs": 0}
         for candidate in self.store.list_records("candidates"):
             cid = str(candidate.get("id"))
@@ -588,6 +676,7 @@ class ConsumerService:
 
     def diagnostics(self) -> dict:
         checks = []
+        settings = self.settings_manager.load()
         for record in self.hosts.install_records():
             checks.append(
                 {
@@ -597,16 +686,46 @@ class ConsumerService:
                     "detail": f"{record.get('version')} · {record.get('integration')}",
                 }
             )
+        tests: dict[str, dict] = {}
+        for entry in self.store.log_tail(500):
+            if entry.get("event") == "provider_tested":
+                tests[str(entry.get("provider_id") or "")] = entry
         for provider in self.providers.public_providers():
+            test = tests.get(str(provider.get("id") or ""))
+            key_ok = bool(provider.get("has_key") or provider.get("local"))
             checks.append(
                 {
                     "id": f"provider:{provider.get('id')}",
                     "name": f"模型 {provider.get('label')}",
-                    "ok": bool(provider.get("has_key") or provider.get("local")),
-                    "detail": provider.get("model", ""),
+                    "ok": key_ok,
+                    "detail": provider.get("model", "")
+                    + (" · 最近连接测试通过" if test and test.get("ok") else " · 尚未测试连接" if key_ok else ""),
                 }
             )
-        return build_diagnostics(self.store, app_version=APP_VERSION, host_checks=checks)
+        result = build_diagnostics(
+            self.store, app_version=APP_VERSION, host_checks=checks
+        )
+        snap = self.budget.snapshot(
+            monthly_limit=float(settings["budget"]["monthly_usd"]),
+            session_limit=float(settings["budget"]["per_session_usd"]),
+            job_limit=float(settings["budget"]["per_job_usd"]),
+            alert_ratio=float(settings["budget"]["alert_ratio"]),
+        )
+        result["budget"] = {
+            **settings.get("budget", {}),
+            **snap.to_dict(),
+        }
+        tail = result.get("logs_tail") or []
+        result["recent_errors"] = [
+            entry
+            for entry in tail
+            if any(token in str(entry.get("event", "")) for token in ("failed", "error", "blocked"))
+        ][-10:]
+        result["tray"] = {
+            "available": _tray_supported(),
+            "status": self.tray_status(settings),
+        }
+        return result
 
     # --- spool ----------------------------------------------------------------
     def spool_event(self, payload: dict) -> Path:
@@ -651,6 +770,30 @@ class ConsumerService:
                     pass
 
 
+def _live_host_keys(home: Path) -> set[str]:
+    from .. import winproc
+
+    root = Path(home) / "runtime" / "hosts"
+    keys: set[str] = set()
+    if not root.is_dir():
+        return keys
+    for path in root.glob("*.json"):
+        payload = engine_store.read_json(path)
+        if not isinstance(payload, dict):
+            continue
+        host = str(payload.get("host") or "")
+        if host and (
+            winproc.pid_alive(payload.get("pid")) or winproc.pid_alive(payload.get("child_pid"))
+        ):
+            keys.add(host)
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    return keys
+
+
 def _tray_supported() -> bool:
     if os.environ.get("MORPHD_TRAY", "1") == "0":
         return False
@@ -663,27 +806,26 @@ def _tray_supported() -> bool:
         return False
 
 
-def _latest_session_file(kind: str, record: dict) -> Path | None:
-    config_dir = Path(str(record.get("config_dir") or "")).expanduser()
-    candidates: list[Path] = []
-    if kind == "dsh":
-        from .. import tasksource
+def _latest_session_file(
+    kind: str, record: dict, *, project_root: Path | None = None
+) -> Path | None:
+    from .manual import _CONFIG_DIR_NAME, _CONFIG_ENV, latest_session_file
 
-        root = Path(os.environ.get("DSH_HOME", config_dir or (Path.home() / ".dsh"))) / "sessions"
-        if root.is_dir():
-            candidates = tasksource.discover_sessions(root)
-    elif kind == "claude-code":
-        root = config_dir or (Path.home() / ".claude")
-        for base in (root / "projects", root / "sessions"):
-            if base.is_dir():
-                candidates.extend(base.rglob("*.jsonl"))
+    raw_config = str(record.get("config_dir") or "").strip()
+    config_dir = Path(raw_config).expanduser() if raw_config else None
+    if kind == "dsh":
+        root = Path(os.environ.get("DSH_HOME", "")).expanduser() if os.environ.get(
+            "DSH_HOME"
+        ) else (config_dir or (Path.home() / ".dsh"))
     else:
-        root = config_dir or (Path.home() / ".codex")
-        if (root / "sessions").is_dir():
-            candidates.extend((root / "sessions").rglob("*.jsonl"))
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+        env_name = _CONFIG_ENV.get(kind)
+        env_value = os.environ.get(env_name) if env_name else None
+        root = (
+            Path(env_value).expanduser()
+            if env_value
+            else (config_dir or (Path.home() / _CONFIG_DIR_NAME[kind]))
+        )
+    return latest_session_file(kind, [root], project_root=project_root)
 
 
 def _pick_folder_native() -> str | None:

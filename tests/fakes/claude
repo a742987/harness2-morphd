@@ -5,7 +5,7 @@ args=sys.argv[1:]
 if '--version' in args:
     print('2.1.302 (Claude Code)'); raise SystemExit(0)
 if '--help' in args:
-    print('--permission-mode --allowedTools --disallowedTools --setting-sources --session-id --resume --output-format stream-json --max-budget-usd --effort --add-dir --strict-mcp-config'); raise SystemExit(0)
+    print('--print --permission-mode --allowedTools --disallowedTools --setting-sources --session-id --resume --output-format stream-json --max-budget-usd --effort --add-dir --strict-mcp-config'); raise SystemExit(0)
 sid=None; resume=False
 for i,a in enumerate(args):
     if a=='--session-id': sid=args[i+1]

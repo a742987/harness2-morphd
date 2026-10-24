@@ -113,6 +113,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [onboarding, setOnboarding] = useState(false);
   const toastId = useRef(0);
   const dismissed = useRef(false);
+  const candidateStates = useRef<Map<string, string>>(new Map());
+  const candidatesPrimed = useRef(false);
 
   const toast = useCallback((kind: Toast["kind"], zh: string, en: string) => {
     const id = ++toastId.current;
@@ -183,21 +185,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
         api.diagnostics(),
         api.projects(),
       ]);
+      const previousStates = candidateStates.current;
+      const nextStates = new Map<string, string>();
+      for (const candidate of nextCandidates) {
+        const state = String(candidate.state);
+        nextStates.set(candidate.id, state);
+        if (!candidate.automatic) continue;
+        const previous = previousStates.get(candidate.id);
+        const isNew = previous === undefined;
+        if (!candidatesPrimed.current) continue;
+        if (
+          (isNew || previous === "needs_apply") &&
+          (state === "applied" || state === "trial")
+        ) {
+          toast(
+            "ok",
+            `已自动应用：${candidate.summary}`,
+            `Auto-applied: ${candidate.summary}`,
+          );
+        } else if (
+          state === "reverted" &&
+          (isNew || previous === "applied" || previous === "trial")
+        ) {
+          toast(
+            "warn",
+            "试用期出现回归信号，已自动回滚",
+            "A regression was detected during the trial; the change was rolled back",
+          );
+        }
+      }
+      candidateStates.current = nextStates;
+      candidatesPrimed.current = true;
       setStatus(nextStatus);
       setSettings(nextSettings);
       setProviders(nextProviders);
-      setHosts(nextHosts.hosts);
-      setSessions(nextSessions.sessions);
-      setCandidates(nextCandidates.candidates);
-      setJobs(nextJobs.jobs);
+      setHosts(nextHosts);
+      setSessions(nextSessions);
+      setCandidates(nextCandidates);
+      setJobs(nextJobs);
       setBudget(nextBudget);
       setDiagnostics(nextDiagnostics);
-      setProjects(nextProjects.projects);
+      setProjects(nextProjects);
       setConnected(true);
       setFatal("");
       if (!dismissed.current) {
         const missing =
-          nextHosts.hosts.filter((h) => h.installed || h.compatible).length === 0 ||
+          nextHosts.filter((h) => h.installed || h.compatible).length === 0 ||
           nextProviders.providers.length === 0 ||
           !nextSettings.models.proposer;
         setOnboarding(missing);

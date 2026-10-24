@@ -17,7 +17,10 @@ DEFAULT_STATE: dict[str, Any] = {
     "version": 1,
     "paused_until": None,
     "vacation": False,
+    "vacation_skipped": 0,
+    "last_vacation_skipped": 0,
     "incognito_next": False,
+    "incognito_next_at": None,
     "incognito_sessions": [],
     "incognito_done": [],
     "active_sessions": [],
@@ -83,9 +86,20 @@ class AttentionManager:
         state = self.state()
         state["paused_until"] = None
         state["paused_forever"] = False
+        was_vacation = bool(state.get("vacation"))
+        state["last_vacation_skipped"] = int(state.get("vacation_skipped", 0) or 0) if was_vacation else 0
+        state["vacation_skipped"] = 0
         state["vacation"] = False
-        self.store.append_log("learning_resumed")
+        self.store.append_log("learning_resumed", skipped=state["last_vacation_skipped"])
         return self._save(state)
+
+    def note_vacation_skip(self) -> int:
+        state = self.state()
+        if not state.get("vacation"):
+            return 0
+        state["vacation_skipped"] = int(state.get("vacation_skipped", 0) or 0) + 1
+        self._save(state)
+        return state["vacation_skipped"]
 
     def set_vacation(self, active: bool) -> dict:
         state = self.state()
@@ -122,11 +136,13 @@ class AttentionManager:
                     sessions.append(session_id)
             else:
                 state["incognito_next"] = True
+                state["incognito_next_at"] = parse_now().isoformat(timespec="seconds")
         else:
             if session_id:
                 sessions = [s for s in sessions if s != session_id]
             else:
                 state["incognito_next"] = False
+                state["incognito_next_at"] = None
                 sessions = []
         state["incognito_sessions"] = sessions
         self.store.append_log("incognito", active=bool(active), session_id=session_id)
@@ -172,7 +188,40 @@ class AttentionManager:
             {"session_id": session_id, "host": host, "started_at": parse_now().isoformat(timespec="seconds")}
         )
         state["active_sessions"] = active
+        if state.get("incognito_next"):
+            sessions = list(state.get("incognito_sessions", []))
+            if session_id not in sessions:
+                sessions.append(session_id)
+            state["incognito_sessions"] = sessions
+            state["incognito_next"] = False
+            state["incognito_next_at"] = None
         self._save(state)
+
+    def apply_pending_incognito(self, session_id: str, started_at: str) -> bool:
+        """Apply a pre-set "next session incognito" only to sessions that started after it.
+
+        This covers hosts whose session-start signal is unavailable; a session that was
+        already running when the user toggled incognito is not retroactively captured (its
+        already-recorded content is not re-sent) but the next one is.
+        """
+        state = self.state()
+        if not state.get("incognito_next"):
+            return False
+        try:
+            started = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            marker = datetime.fromisoformat(str(state.get("incognito_next_at") or ""))
+        except ValueError:
+            return False
+        if started < marker:
+            return False
+        sessions = list(state.get("incognito_sessions", []))
+        if session_id not in sessions:
+            sessions.append(session_id)
+        state["incognito_sessions"] = sessions
+        state["incognito_next"] = False
+        state["incognito_next_at"] = None
+        self._save(state)
+        return True
 
     def session_ended(self, session_id: str) -> None:
         state = self.state()
@@ -239,6 +288,33 @@ class AttentionManager:
     def feedback_stats(self, project_id: str) -> dict:
         return dict(self.state().get("feedback", {}).get(project_id, {}))
 
+    def feedback_overview(self) -> dict:
+        """Projects that asked for a reason after repeated ignores/negative feedback."""
+        prompts = []
+        for project_id, stats in sorted(self.state().get("feedback", {}).items()):
+            if not isinstance(stats, dict) or not stats.get("ask_reason"):
+                continue
+            counts = stats.get("counts") or {}
+            prompts.append(
+                {
+                    "project_id": project_id,
+                    "downranked": bool(stats.get("downranked")),
+                    "counts": {
+                        key: value
+                        for key, value in counts.items()
+                        if isinstance(value, int) and not isinstance(value, bool)
+                    },
+                    "quiet_until": stats.get("quiet_until"),
+                }
+            )
+        return {"prompts": prompts}
+
+    def respond_feedback(self, project_id: str, reason: str) -> dict:
+        """Record the reason chosen in the prompt, then resume normal presentation."""
+        if reason != "resume":
+            self.record_feedback(project_id, reason)
+        return self.reset_downrank(project_id, clear_quiet=reason == "resume")
+
     def record_feedback(self, project_id: str, reason: str, *, candidate_kind: str = "") -> dict:
         state = self.state()
         projects = state.setdefault("feedback", {})
@@ -268,12 +344,14 @@ class AttentionManager:
         self.store.append_log("feedback", project_id=project_id, reason=reason)
         return stats
 
-    def reset_downrank(self, project_id: str) -> dict:
+    def reset_downrank(self, project_id: str, *, clear_quiet: bool = False) -> dict:
         state = self.state()
         stats = dict(state.get("feedback", {}).get(project_id, {}))
         stats["downranked"] = False
         stats["ask_reason"] = False
         stats["consecutive_ignores"] = 0
+        if clear_quiet:
+            stats.pop("quiet_until", None)
         state.setdefault("feedback", {})[project_id] = stats
         self._save(state)
         return stats

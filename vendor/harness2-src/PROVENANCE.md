@@ -17,5 +17,5 @@ morphd never edits files under this directory.
 Verify with:
 
 ```sh
-scripts/verify_vendor.sh
+scripts/verify_vendor.ps1
 ```

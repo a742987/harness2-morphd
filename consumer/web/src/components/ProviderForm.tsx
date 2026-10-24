@@ -104,6 +104,7 @@ export function ProviderForm({
     supports_tools: form.supports_tools,
     supports_json: form.supports_json,
     data_policy: form.data_policy,
+    help_url: form.help_url,
     data_policy_ack: form.data_policy_ack || local,
     local,
     price: {
@@ -346,7 +347,7 @@ export function ProviderForm({
             checked={form.supports_tools}
             onChange={(next) => patch({ supports_tools: next })}
             label={l("支持工具调用", "Supports tool calling")}
-            hint={l("递归提案优先使用工具模式；不支持时自动用补丁模式。", "Recursive proposals prefer tools; patch mode is the fallback.")}
+            hint={l("生成改进建议时优先使用工具模式；不支持时自动用补丁模式。", "Improvement generation prefers tools; patch mode is the fallback.")}
           />
           <Toggle
             checked={form.supports_json}
@@ -465,7 +466,7 @@ export function ProviderForm({
           "测试使用临时 Key，不会写入 Keychain；只有点击保存后才持久化。",
           "Testing uses a temporary key and never writes it to the keychain; it is stored only when you save.",
         )}{" "}
-        {lang === "zh" ? "递归角色要求模型支持工具或 JSON 补丁模式。" : "Recursive roles require tool or JSON patch support."}
+        {lang === "zh" ? "提案角色要求模型支持工具或 JSON 补丁模式。" : "Proposer roles require tool or JSON patch support."}
       </p>
     </div>
   );
